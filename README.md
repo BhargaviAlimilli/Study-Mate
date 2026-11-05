@@ -3,8 +3,8 @@
 A Study Mate backend scaffold using Python 3.12.
 
 The application lives under `backend/app/`. Authentication uses PostgreSQL,
-Argon2 password hashes, and revocable JWT sessions. Document and query endpoints
-remain placeholders; other feature modules and CI are reserved for later steps.
+Argon2 password hashes, and revocable JWT sessions. Document upload validates and indexes text PDFs; the query endpoint
+remains a placeholder; other feature modules and CI are reserved for later steps.
 
 The `.venv/` directory remains at the project root.
 
@@ -77,19 +77,17 @@ PostgreSQL is available locally on port `5433`, using database and username
 `app/ai/embeddings.py` loads the shared local Hugging Face model lazily.
 `app/ai/vectorstore.py` owns Qdrant persistence. `app/ai/rag.py` exposes:
 
-- `create_document_embeddings(docs, user_id=..., workspace_id=...)`: accepts
+- `create_document_embeddings(docs, user_id=...)`: accepts
   a list of extracted and split LangChain `Document` chunks, indexes them,
   and returns Qdrant point IDs. Preserve document ID and page in chunk metadata.
-- `get_document_embeddings(query, user_id=..., workspace_id=..., k=4)`:
+- `get_document_embeddings(query, user_id=..., k=4)`:
   embeds a question and returns matching `Document` chunks, including metadata.
   This function retrieves context; it does not generate a chat answer.
 
-The document service/ingestion worker should call the first function after PDF
-extraction and splitting. The chat service should call the second function
-before passing context to the chat model. HTTP endpoints remain placeholders.
-Callers must use the authenticated user's ID and verify workspace ownership;
-never trust a client-supplied user ID. All searches require user and workspace
-filters. An upload must create the configured collection before it is searched.
+The document service calls the first function after PDF extraction and splitting.
+The chat service will call the second before passing context to the chat model.
+Callers must use the authenticated user's ID, never a client-supplied user ID.
+All searches filter by user. Workspace support is not implemented. An upload must create the configured collection before it is searched.
 
 The selected model is `sentence-transformers/all-MiniLM-L6-v2`, configured by
 `EMBEDDING_MODEL_NAME`. It runs locally on CPU and requires an initial model
@@ -140,3 +138,22 @@ start the server because startup is inside the `if __name__ == "__main__"` block
 - Health check: http://127.0.0.1:8000/health
 
 Stop the server with `Ctrl+C`.
+
+## Upload a PDF
+
+Log in at `/auth/login`, then use Swagger's Authorize button with the access
+token. Submit a file to `POST /documents/upload`. Only text-based PDFs are
+supported, up to 10 MiB by default (`MAX_UPLOAD_BYTES` can override this).
+The request waits for text extraction, splitting (1000 characters with 200
+characters of overlap), embeddings, and Qdrant persistence before returning
+201 with `document_id` and `chunks_stored`. Page numbers are one-based.
+
+Errors: 401 for invalid authentication, 415 for unsupported file types, 400 for
+empty/invalid/encrypted PDFs or PDFs without extractable text, 413 for oversized
+files, and 503 for embedding or Qdrant failures. The first embedding call may
+download the local Hugging Face model. Run Qdrant before uploading.
+
+This step stores text chunks and metadata in Qdrant, not the original PDF or
+a PostgreSQL document record. Processing is synchronous; RQ integration and
+retry deduplication are deferred. Partial indexing failures are not transactional;
+some chunks may remain if Qdrant fails during a multi-batch upload.

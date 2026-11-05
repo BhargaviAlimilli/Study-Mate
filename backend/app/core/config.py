@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://127.0.0.1:6335"
     qdrant_collection_name: str = "study_mate"
     embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+    max_upload_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
 
 
 @lru_cache

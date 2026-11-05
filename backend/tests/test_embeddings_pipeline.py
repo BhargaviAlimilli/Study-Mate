@@ -17,7 +17,7 @@ class FakeEmbeddings(Embeddings):
         return [float('python' in text.lower()), float('history' in text.lower()), 0.1]
 
 
-def test_upload_then_chat_with_workspace_isolation(monkeypatch):
+def test_upload_then_chat_with_user_isolation(monkeypatch):
     client = QdrantClient(':memory:')
     client.create_collection('test', vectors_config=models.VectorParams(size=3, distance=models.Distance.COSINE))
     store = QdrantVectorStore(client=client, collection_name='test', embedding=FakeEmbeddings())
@@ -27,16 +27,15 @@ def test_upload_then_chat_with_workspace_isolation(monkeypatch):
     monkeypatch.setattr(rag, 'get_vector_store', lambda: store)
     try:
         original = Document(page_content='Python study notes', metadata={'page': 2, 'document_id': 'pdf-1'})
-        ids = rag.create_document_embeddings([original], user_id='alice', workspace_id='course-1')
+        ids = rag.create_document_embeddings([original], user_id='alice')
         assert len(ids) == 1
         assert original.metadata == {'page': 2, 'document_id': 'pdf-1'}
-        rag.create_document_embeddings([Document(page_content='Private Python notes')], user_id='bob', workspace_id='course-1')
-        rag.create_document_embeddings([Document(page_content='Other Python notes')], user_id='alice', workspace_id='course-2')
-        found = rag.get_document_embeddings('Python', user_id='alice', workspace_id='course-1')
+        rag.create_document_embeddings([Document(page_content='Private Python notes')], user_id='bob')
+        found = rag.get_document_embeddings('Python', user_id='alice')
         assert len(found) == 1
         assert found[0].page_content == original.page_content
         assert found[0].metadata['page'] == 2
-        assert rag.get_document_embeddings('Python', user_id='unknown', workspace_id='course-1') == []
+        assert rag.get_document_embeddings('Python', user_id='unknown') == []
     finally:
         real_close()
 
@@ -48,7 +47,7 @@ def test_invalid_input_does_not_access_qdrant(monkeypatch):
     monkeypatch.setattr(rag, 'get_vector_store', unexpected)
     for docs in [[], [Document(page_content=' ')], ['not a Document']]:
         with pytest.raises(ValueError):
-            rag.create_document_embeddings(docs, user_id='alice', workspace_id='course-1')
+            rag.create_document_embeddings(docs, user_id='alice')
     for query, k in [(' ', 4), ('python', 0), ('python', 21)]:
         with pytest.raises(ValueError):
-            rag.get_document_embeddings(query, user_id='alice', workspace_id='course-1', k=k)
+            rag.get_document_embeddings(query, user_id='alice', k=k)

@@ -8,11 +8,11 @@ from app.ai.vectorstore import add_documents, get_vector_store
 
 
 def create_document_embeddings(
-    docs: list[Document], *, user_id: str, workspace_id: str
+    docs: list[Document], *, user_id: str
 ) -> list[str]:
     """Index extracted, split document chunks; return their Qdrant IDs."""
-    if not user_id.strip() or not workspace_id.strip():
-        raise ValueError("User and workspace IDs are required.")
+    if not user_id.strip():
+        raise ValueError("User ID is required.")
     if not docs or any(not isinstance(doc, Document) or not doc.page_content.strip() for doc in docs):
         raise ValueError("Provide a non-empty list of Document chunks with text.")
 
@@ -20,7 +20,7 @@ def create_document_embeddings(
     scoped_docs = [
         Document(
             page_content=doc.page_content,
-            metadata={**doc.metadata, "user_id": user_id, "workspace_id": workspace_id},
+            metadata={**doc.metadata, "user_id": user_id},
         )
         for doc in docs
     ]
@@ -30,19 +30,18 @@ def create_document_embeddings(
 
 
 def get_document_embeddings(
-    query: str, *, user_id: str, workspace_id: str, k: int = 4
+    query: str, *, user_id: str, k: int = 4
 ) -> list[Document]:
     """Return relevant stored chunks for chat, not the raw embedding vectors."""
     if not query.strip():
         raise ValueError("Query must not be empty.")
-    if not user_id.strip() or not workspace_id.strip():
-        raise ValueError("User and workspace IDs are required.")
+    if not user_id.strip():
+        raise ValueError("User ID is required.")
     if not 1 <= k <= 20:
         raise ValueError("k must be between 1 and 20.")
 
     scope = models.Filter(must=[
         models.FieldCondition(key="metadata.user_id", match=models.MatchValue(value=user_id)),
-        models.FieldCondition(key="metadata.workspace_id", match=models.MatchValue(value=workspace_id)),
     ])
     store = get_vector_store()
     try:
