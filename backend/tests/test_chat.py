@@ -25,7 +25,7 @@ def chat(monkeypatch):
         })]
     monkeypatch.setattr(chat_service, 'get_document_embeddings', retrieve)
     agent = AsyncMock(return_value=TutorAnswer(
-        status='answered', answer='You can change list elements. [1]', citation_ids=[1]
+        status='answered', answer='You can change list elements.', citation_ids=[1]
     ))
     monkeypatch.setattr(chat_service, 'generate_reply', agent)
     try:
@@ -40,8 +40,8 @@ def test_grounded_query_and_user_scope(chat):
     response = client.post('/query', json={'query': '  Explain mutable lists  '})
     assert response.status_code == 200
     assert retrieval == [('Explain mutable lists', str(owner))]
-    assert response.json()['sources'][0]['page'] == 2
-    assert response.json()['sources'][0]['document_id'] == 'doc-1'
+    assert response.json() == {'status': 'answered', 'answer': 'You can change list elements.'}
+    assert 'citation_ids' not in response.json()
     assert agent.call_args.args[1] == [{'citation_id': 1, 'text': 'A list is mutable.'}]
 
 
@@ -56,7 +56,7 @@ def test_agent_response_statuses(chat, status):
     chat[3].return_value = TutorAnswer(status=status, answer='Please ask about your notes.', citation_ids=[])
     response = chat[0].post('/query', json={'query': 'A question'})
     assert response.json()['status'] == status
-    assert response.json()['sources'] == []
+    assert set(response.json()) == {'status', 'answer'}
 
 
 def test_no_documents_and_missing_collection(chat, monkeypatch):

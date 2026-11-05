@@ -9,21 +9,12 @@ class ChatRequest(BaseModel):
 
 
 class TutorAnswer(BaseModel):
-    """Structured agent output; citation IDs refer only to retrieved passages."""
+    """Internal agent output; evidence IDs are validated but not exposed to the user."""
     status: Literal["answered", "out_of_scope", "insufficient_context", "quiz_unavailable"]
     answer: str = Field(min_length=1)
     citation_ids: list[int]
 
 
-class ChatSource(BaseModel):
-    citation_id: int
-    document_id: str
-    filename: str
-    page: int
-    excerpt: str
-
-
 class ChatResponse(BaseModel):
     status: Literal["answered", "out_of_scope", "insufficient_context", "quiz_unavailable"]
     answer: str
-    sources: list[ChatSource] = Field(default_factory=list)

@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import re
 
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
@@ -8,7 +7,7 @@ from starlette.concurrency import run_in_threadpool
 from app.ai.llm import generate_reply
 from app.ai.rag import get_document_embeddings
 from app.ai.vectorstore import MissingCollectionError
-from app.schemas.chat import ChatResponse, ChatSource
+from app.schemas.chat import ChatResponse
 
 logger = logging.getLogger(__name__)
 
@@ -32,16 +31,11 @@ async def answer_query(query: str, user_id: str) -> ChatResponse:
     if not docs:
         return insufficient_context()
 
-    sources = {
-        i: ChatSource(
-            citation_id=i,
-            document_id=str(doc.metadata.get("document_id", "")),
-            filename=str(doc.metadata.get("filename", "Uploaded document")),
-            page=int(doc.metadata.get("page", 1)),
-            excerpt=doc.page_content[:2000],
-        ) for i, doc in enumerate(docs, start=1)
-    }
-    passages = [{"citation_id": i, "text": source.excerpt} for i, source in sources.items()]
+    passages = [
+        {"citation_id": i, "text": doc.page_content[:2000]}
+        for i, doc in enumerate(docs, start=1)
+    ]
+    valid_ids = {passage["citation_id"] for passage in passages}
     try:
         result = await asyncio.wait_for(generate_reply(query, passages), timeout=60)
     except TimeoutError as exc:
@@ -53,8 +47,7 @@ async def answer_query(query: str, user_id: str) -> ChatResponse:
     if result.status != "answered":
         return ChatResponse(status=result.status, answer=result.answer)
     ids = list(dict.fromkeys(result.citation_ids))
-    inline_ids = {int(value) for value in re.findall(r"\[(\d+)\]", result.answer)}
-    if not ids or any(i not in sources for i in ids) or inline_ids != set(ids):
+    if not ids or any(i not in valid_ids for i in ids):
         # Never return invented source references as a grounded answer.
         return insufficient_context()
-    return ChatResponse(status="answered", answer=result.answer, sources=[sources[i] for i in ids])
+    return ChatResponse(status="answered", answer=result.answer)

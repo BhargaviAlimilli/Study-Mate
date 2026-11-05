@@ -115,11 +115,11 @@ defines its role, tone, evidence rules, and few-shot examples. Retrieved text
 and questions are treated as untrusted data; they cannot override those rules.
 The tutor provides concise teaching steps, not private chain-of-thought.
 
-Responses contain `status`, `answer`, and `sources`. Status is `answered`,
-`out_of_scope`, `insufficient_context`, or `quiz_unavailable`. Supported answers
-include `[1]`-style citations and source document IDs, filenames, one-based
-pages, and excerpts. Citation IDs are checked against the retrieved passages;
-this check does not independently prove that the cited text supports every claim.
+Responses contain only `status` and `answer`. Status is `answered`,
+`out_of_scope`, `insufficient_context`, or `quiz_unavailable`. The answer uses plain explanations without inline references or source dumps.
+Evidence IDs are kept in internal agent output and validated against retrieved
+passages, but are not returned to clients. This check does not independently
+prove that the evidence supports every claim.
 Scope and evidence judgments depend on the model and should be evaluated with
 representative documents. Quiz generation remains deferred.
 
