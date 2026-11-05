@@ -1,6 +1,7 @@
 """Qdrant connections and persistence, separate from model configuration."""
 from langchain_core.documents import Document
 from langchain_qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
 
 from app.ai.embeddings import get_embedding_model
 from app.core.config import get_settings
@@ -20,10 +21,20 @@ def add_documents(documents: list[Document], ids: list[str]) -> None:
     store.client.close()
 
 
+class MissingCollectionError(Exception):
+    pass
+
+
 def get_vector_store() -> QdrantVectorStore:
     settings = get_settings()
-    return QdrantVectorStore.from_existing_collection(
-        embedding=get_embedding_model(),
-        collection_name=settings.qdrant_collection_name,
-        url=settings.qdrant_url,
-    )
+    client = QdrantClient(url=settings.qdrant_url, timeout=15)
+    try:
+        if not client.collection_exists(settings.qdrant_collection_name):
+            raise MissingCollectionError()
+        return QdrantVectorStore(
+            client=client, embedding=get_embedding_model(),
+            collection_name=settings.qdrant_collection_name,
+        )
+    except Exception:
+        client.close()
+        raise

@@ -3,8 +3,8 @@
 A Study Mate backend scaffold using Python 3.12.
 
 The application lives under `backend/app/`. Authentication uses PostgreSQL,
-Argon2 password hashes, and revocable JWT sessions. Document upload validates and indexes text PDFs; the query endpoint
-remains a placeholder; other feature modules and CI are reserved for later steps.
+Argon2 password hashes, and revocable JWT sessions. Document upload validates and indexes text PDFs; authenticated chat answers
+questions using retrieved passages; other feature modules and CI are reserved for later steps.
 
 The `.venv/` directory remains at the project root.
 
@@ -99,19 +99,36 @@ point IDs; retry deduplication will be added with the ingestion worker.
 Install backend dependencies with `pip install -r backend/requirements.txt`
 from the project root (or `pip install -r requirements.txt` inside `backend/`).
 
-### Standalone Claude agent
+### Document chat
 
 Set `ANTHROPIC_API_KEY` in `backend/.env` to your Anthropic API key.
-`ANTHROPIC_MODEL` defaults to `claude-haiku-5-5`. From `backend/`, with the
-virtual environment active, run:
+`ANTHROPIC_MODEL` defaults to `claude-haiku-5-5`. Log in, authorize with the
+returned bearer token, and send `POST /query`:
 
-```powershell
-python -m app.ai.llm "When did the Roman Empire fall?"
+```json
+{"query": "Explain the main concept in my uploaded notes in simple words."}
 ```
 
-This uses the OpenAI Agents SDK with its LiteLLM adapter to call Anthropic.
-It runs one model call without chat history or tools. OpenAI tracing is disabled
-for this call. The `/query` endpoint is still a placeholder.
+The route retrieves up to four chunks belonging to the authenticated user and
+passes them to the Study Mate agent. The system prompt in `app/ai/prompts.py`
+defines its role, tone, evidence rules, and few-shot examples. Retrieved text
+and questions are treated as untrusted data; they cannot override those rules.
+The tutor provides concise teaching steps, not private chain-of-thought.
+
+Responses contain `status`, `answer`, and `sources`. Status is `answered`,
+`out_of_scope`, `insufficient_context`, or `quiz_unavailable`. Supported answers
+include `[1]`-style citations and source document IDs, filenames, one-based
+pages, and excerpts. Citation IDs are checked against the retrieved passages;
+this check does not independently prove that the cited text supports every claim.
+Scope and evidence judgments depend on the model and should be evaluated with
+representative documents. Quiz generation remains deferred.
+
+No passages or no collection returns an upload/clarification message without
+calling the model. Invalid queries return 422; missing authentication returns
+401; retrieval/model failures return 503; model timeouts return 504. Blocking
+retrieval runs in a thread pool. The OpenAI Agents SDK uses its LiteLLM adapter
+to call Anthropic, with OpenAI tracing disabled. Requests currently have no
+persisted conversation history; questions must be self-contained.
 
 ### FastAPI server
 

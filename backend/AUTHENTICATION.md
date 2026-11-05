@@ -148,7 +148,7 @@ real application accounts. They require a reachable configured PostgreSQL DB.
 ## Current scope
 
 Document upload now requires authentication and indexes PDFs under the current user.
-The query route remains a public placeholder. This step adds account
+The query route also requires authentication and retrieves only the current user's chunks. This step adds account
 authentication, not ownership checks for future study data. Email verification,
 password reset, login rate limiting, and HTTPS deployment configuration are
 not implemented yet.
