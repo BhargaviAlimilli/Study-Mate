@@ -34,14 +34,3 @@ async def generate_reply(question: str) -> str:
     )
     return str(result.final_output)
 
-
-async def main() -> None:
-    question = " ".join(sys.argv[1:]) or "When did the Roman Empire fall?"
-    print(await generate_reply(question))
-
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
