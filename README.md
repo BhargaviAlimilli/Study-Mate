@@ -72,6 +72,22 @@ PostgreSQL is available locally on port `5433`, using database and username
 
 ## Run
 
+### Standalone Claude agent
+
+Set `ANTHROPIC_API_KEY` in `backend/.env` to your Anthropic API key.
+`ANTHROPIC_MODEL` defaults to `claude-haiku-5-5`. From `backend/`, with the
+virtual environment active, run:
+
+```powershell
+python -m app.ai.llm "When did the Roman Empire fall?"
+```
+
+This uses the OpenAI Agents SDK with its LiteLLM adapter to call Anthropic.
+It runs one model call without chat history or tools. OpenAI tracing is disabled
+for this call. The `/query` endpoint is still a placeholder.
+
+### FastAPI server
+
 ```powershell
 .\.venv\Scripts\python.exe backend/app/main.py
 ```

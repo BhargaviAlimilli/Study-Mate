@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     database_url: str
     jwt_secret_key: SecretStr = Field(min_length=32)
     access_token_expire_minutes: int = Field(default=30, ge=1, le=1440)
+    anthropic_api_key: SecretStr | None = None
+    anthropic_model: str = "claude-haiku-5-5"
 
 
 @lru_cache

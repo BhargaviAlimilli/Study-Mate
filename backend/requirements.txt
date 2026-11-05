@@ -13,6 +13,7 @@ alembic
 
 # AI models, workflows, and vector search
 openai
+openai-agents[litellm]==0.24.0
 langchain
 langchain-openai
 langchain-text-splitters
