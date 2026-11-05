@@ -1,0 +1,33 @@
+# API and configuration
+fastapi
+uvicorn[standard]
+pydantic-settings
+email-validator
+python-dotenv
+python-multipart
+
+# PostgreSQL and migrations
+SQLAlchemy
+psycopg[binary,pool]
+alembic
+
+# AI models, workflows, and vector search
+openai
+langchain
+langchain-openai
+langchain-text-splitters
+langgraph
+langgraph-checkpoint-postgres
+qdrant-client
+langchain-qdrant
+
+# PDF extraction and background jobs
+pypdf
+redis
+rq
+
+# Authentication and verification
+PyJWT
+pwdlib[argon2]
+pytest
+httpx
