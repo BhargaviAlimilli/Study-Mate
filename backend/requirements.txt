@@ -21,6 +21,8 @@ langgraph
 langgraph-checkpoint-postgres
 qdrant-client
 langchain-qdrant
+langchain-huggingface
+sentence-transformers
 
 # PDF extraction and background jobs
 pypdf

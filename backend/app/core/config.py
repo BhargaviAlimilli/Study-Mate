@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(default=30, ge=1, le=1440)
     anthropic_api_key: SecretStr | None = None
     anthropic_model: str = "claude-haiku-5-5"
+    qdrant_url: str = "http://127.0.0.1:6335"
+    qdrant_collection_name: str = "study_mate"
+    embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 @lru_cache

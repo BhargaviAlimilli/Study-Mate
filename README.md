@@ -72,6 +72,35 @@ PostgreSQL is available locally on port `5433`, using database and username
 
 ## Run
 
+### Document embeddings and retrieval
+
+`app/ai/embeddings.py` loads the shared local Hugging Face model lazily.
+`app/ai/vectorstore.py` owns Qdrant persistence. `app/ai/rag.py` exposes:
+
+- `create_document_embeddings(docs, user_id=..., workspace_id=...)`: accepts
+  a list of extracted and split LangChain `Document` chunks, indexes them,
+  and returns Qdrant point IDs. Preserve document ID and page in chunk metadata.
+- `get_document_embeddings(query, user_id=..., workspace_id=..., k=4)`:
+  embeds a question and returns matching `Document` chunks, including metadata.
+  This function retrieves context; it does not generate a chat answer.
+
+The document service/ingestion worker should call the first function after PDF
+extraction and splitting. The chat service should call the second function
+before passing context to the chat model. HTTP endpoints remain placeholders.
+Callers must use the authenticated user's ID and verify workspace ownership;
+never trust a client-supplied user ID. All searches require user and workspace
+filters. An upload must create the configured collection before it is searched.
+
+The selected model is `sentence-transformers/all-MiniLM-L6-v2`, configured by
+`EMBEDDING_MODEL_NAME`. It runs locally on CPU and requires an initial model
+download. No Anthropic or OpenAI API key is needed for these embeddings.
+Use the same model for uploads and queries; changing it requires reindexing
+documents into a compatible collection. Repeated uploads currently create new
+point IDs; retry deduplication will be added with the ingestion worker.
+
+Install backend dependencies with `pip install -r backend/requirements.txt`
+from the project root (or `pip install -r requirements.txt` inside `backend/`).
+
 ### Standalone Claude agent
 
 Set `ANTHROPIC_API_KEY` in `backend/.env` to your Anthropic API key.

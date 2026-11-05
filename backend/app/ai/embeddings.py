@@ -1,34 +1,16 @@
-import os
-from langchain_qdrant import QdrantVectorStore
-from openai import OpenAI
+"""Shared local embedding model for document indexing and chat retrieval."""
+from functools import lru_cache
+
 from langchain_huggingface import HuggingFaceEmbeddings
 
-embedding_model = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
-)
+from app.core.config import get_settings
 
-client = OpenAI(
-    api_key=os.getenv("ANTHROPIC_API_KEY"),
-    base_url="https://api.anthropic.com/v1/")
 
-vector_store = QdrantVectorStore(
-    url=os.getenv("QDRANT_URL"),
-    collection_name="study_mate"
-)
-
-def create_document_embeddings(docs):
-    document_indexing = vector_store.from_documents(
-    documents="",
-    embedding=embedding_model)
-
-    return document_indexing
-
-def get_document_embeddings(query):
-    vector_db = vector_store.from_existing_collection(
-        embedding=embedding_model,
-        collection_name='study_mate',
-        url= os.getenv("QDRANT_URL")
+@lru_cache(maxsize=1)
+def get_embedding_model() -> HuggingFaceEmbeddings:
+    # Load only on first use, not during FastAPI startup or module import.
+    return HuggingFaceEmbeddings(
+        model_name=get_settings().embedding_model_name,
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={"normalize_embeddings": True},
     )
-    serach_results = vector_db.similarity_search(query=query)
-
-    return serach_results
