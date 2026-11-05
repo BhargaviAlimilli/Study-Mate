@@ -1,10 +1,15 @@
 import logging
-from uuid import uuid4
+from uuid import UUID, uuid4
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from fastapi import HTTPException, UploadFile
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.ai.rag import create_document_embeddings
+from app.ai.vectorstore import delete_document_vectors
+from app.models.document import DocumentRecord
 from app.core.config import get_settings
 from app.schemas.document import DocumentUploadResponse
 from app.utils.pdf_parser import extract_pdf_pages
@@ -12,7 +17,7 @@ from app.utils.pdf_parser import extract_pdf_pages
 logger = logging.getLogger(__name__)
 
 
-def process_document_upload(file: UploadFile, user_id: str) -> DocumentUploadResponse:
+def process_document_upload(file: UploadFile, user_id: str, db: Session) -> DocumentUploadResponse:
     try:
         if not file.filename or not file.filename.lower().endswith(".pdf"):
             raise HTTPException(status_code=415, detail="Only PDF files are supported.")
@@ -30,9 +35,24 @@ def process_document_upload(file: UploadFile, user_id: str) -> DocumentUploadRes
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+        filename = file.filename.replace("\\", "/").rsplit("/", 1)[-1]
+        if not filename or len(filename) > 255:
+            raise HTTPException(status_code=400, detail="The filename must contain 1 to 255 characters.")
         document_id = uuid4()
+        record = DocumentRecord(
+            id=document_id, user_id=UUID(user_id), filename=filename,
+            pdf_content=content, size_bytes=len(content),
+            page_count=pages[0].metadata["total_pages"], chunks_stored=0, status="processing",
+        )
+        try:
+            db.add(record)
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.error("Document persistence failed (%s)", type(exc).__name__)
+            raise HTTPException(status_code=503, detail="Document storage is unavailable.") from exc
         for page in pages:
-            page.metadata.update({"document_id": str(document_id), "filename": file.filename})
+            page.metadata.update({"document_id": str(document_id), "filename": filename})
         chunks = RecursiveCharacterTextSplitter(
             chunk_size=1000, chunk_overlap=200
         ).split_documents(pages)
@@ -40,7 +60,21 @@ def process_document_upload(file: UploadFile, user_id: str) -> DocumentUploadRes
             chunk.metadata["chunk_index"] = index
         try:
             ids = create_document_embeddings(chunks, user_id=user_id)
+            record.chunks_stored = len(ids)
+            record.status = "ready"
+            db.commit()
         except Exception as exc:
+            db.rollback()
+            try:
+                delete_document_vectors(str(document_id), user_id)
+            except Exception as cleanup_error:
+                logger.error("Vector cleanup failed (%s)", type(cleanup_error).__name__)
+            record.status = "failed"
+            record.chunks_stored = 0
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
             # Do not return provider errors, credentials, or uploaded text to clients.
             logger.error("Document indexing failed (%s)", type(exc).__name__)
             raise HTTPException(
@@ -49,3 +83,24 @@ def process_document_upload(file: UploadFile, user_id: str) -> DocumentUploadRes
         return DocumentUploadResponse(document_id=document_id, chunks_stored=len(ids))
     finally:
         file.file.close()
+
+
+def get_owned_document(document_id: UUID, user_id: UUID, db: Session) -> DocumentRecord:
+    record = db.scalar(select(DocumentRecord).where(
+        DocumentRecord.id == document_id, DocumentRecord.user_id == user_id
+    ))
+    if record is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return record
+
+
+def list_documents(user_id: UUID, db: Session, limit: int, offset: int) -> list[DocumentRecord]:
+    return list(db.scalars(select(DocumentRecord).where(
+        DocumentRecord.user_id == user_id
+    ).order_by(DocumentRecord.uploaded_at.desc(), DocumentRecord.id).limit(limit).offset(offset)))
+
+
+def get_document_content(record: DocumentRecord) -> bytes:
+    if record.status != "ready":
+        raise HTTPException(status_code=409, detail="Document is not ready.")
+    return record.pdf_content

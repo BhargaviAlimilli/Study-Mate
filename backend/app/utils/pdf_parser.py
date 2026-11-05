@@ -14,7 +14,7 @@ def extract_pdf_pages(content: bytes) -> list[Document]:
         for number, page in enumerate(reader.pages, start=1):
             text = page.extract_text() or ""
             if text.strip():
-                pages.append(Document(page_content=text, metadata={"page": number}))
+                pages.append(Document(page_content=text, metadata={"page": number, "total_pages": len(reader.pages)}))
     except ValueError:
         raise
     except Exception as exc:

@@ -2,6 +2,7 @@ from alembic import context
 
 from app.core.database import Base, engine
 from app.models.user import AuthSession, User  # Register both tables with metadata.
+from app.models.document import DocumentRecord
 
 
 if context.is_offline_mode():

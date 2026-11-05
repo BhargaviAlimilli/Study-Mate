@@ -1,6 +1,6 @@
 from io import BytesIO
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,6 +8,11 @@ from pypdf import PdfWriter
 from pypdf.generic import DictionaryObject, NameObject, DecodedStreamObject
 
 from app.core.config import get_settings
+from app.core.database import Base, get_db
+from app.models.user import User
+from app.models.document import DocumentRecord
+from sqlalchemy import create_engine, text, select
+from sqlalchemy.orm import Session
 from app.core.security import get_current_user
 from app.main import app
 from app.services import document_service
@@ -36,14 +41,32 @@ def make_pdf(*, text=True, encrypted=False):
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    schema = "test_documents_" + uuid4().hex
+    engine = create_engine(get_settings().database_url)
+    with engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+    test_engine = engine.execution_options(schema_translate_map={None: schema})
+    Base.metadata.create_all(test_engine)
     user_id = uuid4()
+    with Session(test_engine) as db:
+        db.add(User(id=user_id, name="Test user", email="test@example.com", password_hash="test-only"))
+        db.commit()
+    def test_db():
+        with Session(test_engine, expire_on_commit=False) as db:
+            yield db
+    app.dependency_overrides[get_db] = test_db
     app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=user_id)
+    monkeypatch.setattr(document_service, 'delete_document_vectors', lambda *args: None)
     try:
         with TestClient(app) as client:
             yield client, user_id
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_db, None)
+        with engine.begin() as connection:
+            connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        engine.dispose()
 
 
 def test_upload_extracts_chunks_and_waits_for_indexing(client, monkeypatch):
@@ -83,9 +106,10 @@ def test_invalid_upload_is_not_indexed(client, monkeypatch, filename, content, m
 
 
 def test_size_limit_and_storage_failure(client, monkeypatch):
+    original_settings = document_service.get_settings
     monkeypatch.setattr(document_service, 'get_settings', lambda: SimpleNamespace(max_upload_bytes=5))
     assert client[0].post('/documents/upload', files={'file': ('a.pdf', b'%PDF-too-large', 'application/pdf')}).status_code == 413
-    monkeypatch.setattr(document_service, 'get_settings', get_settings)
+    monkeypatch.setattr(document_service, 'get_settings', original_settings)
     def fail(*args, **kwargs):
         raise RuntimeError('private provider details')
     monkeypatch.setattr(document_service, 'create_document_embeddings', fail)
@@ -97,3 +121,52 @@ def test_size_limit_and_storage_failure(client, monkeypatch):
 def test_upload_requires_authentication():
     with TestClient(app) as client:
         assert client.post('/documents/upload', files={'file': ('a.pdf', make_pdf(), 'application/pdf')}).status_code == 401
+
+
+def test_persist_list_open_and_user_isolation(client, monkeypatch):
+    http, owner = client
+    monkeypatch.setattr(document_service, 'create_document_embeddings', lambda docs, **kwargs: [str(uuid4()) for _ in docs])
+    pdf = make_pdf()
+    uploaded = http.post('/documents/upload', files={'file': ('../notes.pdf', pdf, 'application/pdf')})
+    assert uploaded.status_code == 201
+    document_id = uploaded.json()['document_id']
+    # Separate requests use separate sessions: persistence does not rely on memory.
+    listed = http.get('/documents').json()
+    assert len(listed) == 1 and listed[0]['id'] == document_id
+    assert listed[0]['filename'] == 'notes.pdf'
+    assert listed[0]['status'] == 'ready' and listed[0]['page_count'] == 1
+    assert 'pdf_content' not in listed[0]
+    database = app.dependency_overrides[get_db]()
+    db = next(database)
+    try:
+        stored = db.get(DocumentRecord, UUID(document_id))
+        assert stored.pdf_content == pdf
+    finally:
+        database.close()
+    assert http.get(f'/documents/{document_id}').status_code == 200
+    original = http.get(f'/documents/{document_id}/file')
+    assert original.content == pdf
+    assert original.headers['cache-control'] == 'no-store'
+    page = http.get(f'/documents/{document_id}/file?page=1')
+    from pypdf import PdfReader
+    assert len(PdfReader(BytesIO(page.content)).pages) == 1
+    assert http.get(f'/documents/{document_id}/file?page=2').status_code == 404
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid4())
+    assert http.get('/documents').json() == []
+    assert http.get(f'/documents/{document_id}').status_code == 404
+    assert http.get(f'/documents/{document_id}/file').status_code == 404
+
+
+def test_failed_indexing_marks_document_failed(client, monkeypatch):
+    def fail(*args, **kwargs):
+        raise RuntimeError('index failure')
+    cleaned = []
+    monkeypatch.setattr(document_service, 'create_document_embeddings', fail)
+    monkeypatch.setattr(document_service, 'delete_document_vectors', lambda *args: cleaned.append(args))
+    response = client[0].post('/documents/upload', files={'file': ('notes.pdf', make_pdf(), 'application/pdf')})
+    assert response.status_code == 503
+    documents = client[0].get('/documents').json()
+    assert len(documents) == 1 and documents[0]['status'] == 'failed'
+    assert documents[0]['chunks_stored'] == 0
+    assert cleaned[0] == (documents[0]['id'], str(client[1]))
+    assert client[0].get('/documents/' + documents[0]['id'] + '/file').status_code == 409

@@ -170,7 +170,52 @@ empty/invalid/encrypted PDFs or PDFs without extractable text, 413 for oversized
 files, and 503 for embedding or Qdrant failures. The first embedding call may
 download the local Hugging Face model. Run Qdrant before uploading.
 
-This step stores text chunks and metadata in Qdrant, not the original PDF or
-a PostgreSQL document record. Processing is synchronous; RQ integration and
-retry deduplication are deferred. Partial indexing failures are not transactional;
-some chunks may remain if Qdrant fails during a multi-batch upload.
+Original PDF bytes are stored in PostgreSQL's `documents.pdf_content` column
+(`BYTEA`), alongside metadata. Qdrant stores embedding vectors and text chunks.
+The application does not retain uploaded PDFs in the repository or a storage
+folder. Metadata/list queries defer loading the binary column. The original
+PDF and individual pages are read from PostgreSQL into memory when requested.
+Database data still occupies disk in Docker's named volumes, outside the codebase.
+Processing remains synchronous. Rows transition from `processing` to `ready`
+or `failed`; failed indexing attempts request cleanup of vectors by document
+and owner. PostgreSQL and Qdrant are not one atomic transaction: a process
+crash or unavailable cleanup may require later recovery. Retry deduplication
+and crash recovery are deferred.
+
+Authenticated document APIs:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/documents?limit=20&offset=0` | List only your documents and processing status |
+| GET | `/documents/{document_id}` | Read public document metadata |
+| GET | `/documents/{document_id}/file` | Open the saved original PDF |
+| GET | `/documents/{document_id}/file?page=3` | Open a single page (one-based) |
+
+All endpoints require a bearer token. Files are served through authenticated
+routes, not a public static folder. Missing or other-user documents return 404;
+unready PDFs return 409. A frontend can fetch the PDF with its authorization
+header and display the returned blob; do not place bearer tokens in URLs.
+The chat answer remains clean without inline citations or source dumps.
+Old uploads made before file persistence have only Qdrant chunks: reupload them
+to save their original PDFs and PostgreSQL metadata.
+
+## Remaining backend milestones
+
+1. Document persistence and authenticated PDF viewing: implemented.
+2. Saved conversations and contextual follow-ups.
+3. Optional supporting-page metadata and clearly labelled teaching comparisons.
+4. Generate five saved, validated MCQs from uploaded notes.
+5. Submit quizzes, score deterministically, and persist attempts.
+6. Identify revision topics from attempts and save a revision list.
+
+UI and background ingestion remain deferred. Workspaces are not required for
+these milestones. Empty module files do not imply implemented features.
+
+Migration `0003_pdf_database_storage` replaces the former local-file references
+with database bytes. It backfills existing local originals before changing the
+schema and aborts if any required file is missing. For a custom old storage
+location, set `LEGACY_DOCUMENT_STORAGE_DIR` when running the migration. The
+migration does not delete legacy files during its transaction; after a successful
+backfill, remove verified legacy copies. This workspace had no legacy documents
+when the migration was applied. Rollback to filesystem storage requires a
+forward migration so that database PDF content is not discarded.
