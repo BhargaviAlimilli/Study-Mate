@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.routes import auth, chat, documents
+from app.routes import auth, chat, documents, quizzes
 
 HOST = "127.0.0.1"
 PORT = 8000
@@ -21,6 +21,7 @@ app = FastAPI(title="Study Mate API", version="0.1.0")
 app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
+app.include_router(quizzes.router)
 
 
 @app.exception_handler(RequestValidationError)

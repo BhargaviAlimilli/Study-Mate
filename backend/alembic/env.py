@@ -4,6 +4,7 @@ from app.core.database import Base, engine
 from app.models.user import AuthSession, User  # Register both tables with metadata.
 from app.models.document import DocumentRecord
 from app.models.conversation import Conversation, Message
+from app.models.quiz import Quiz, QuizQuestion
 
 
 def include_name(name, type_, parent_names):

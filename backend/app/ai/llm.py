@@ -8,20 +8,20 @@ from app.ai.prompts import STUDY_TUTOR_PROMPT
 from app.schemas.chat import TutorAnswer
 
 
-def create_agent() -> Agent:
+def create_agent(*, instructions=STUDY_TUTOR_PROMPT, output_type=TutorAnswer, max_tokens=1024) -> Agent:
     settings = get_settings()
     if settings.anthropic_api_key is None or not settings.anthropic_api_key.get_secret_value().strip():
         raise ValueError("Set ANTHROPIC_API_KEY in backend/.env before calling Claude.")
 
     return Agent(
         name="Study Mate tutor",
-        instructions=STUDY_TUTOR_PROMPT,
-        output_type=TutorAnswer,
+        instructions=instructions,
+        output_type=output_type,
         model=LitellmModel(
             model=f"anthropic/{settings.anthropic_model}",
             api_key=settings.anthropic_api_key.get_secret_value(),
         ),
-        model_settings=ModelSettings(max_tokens=1024),
+        model_settings=ModelSettings(max_tokens=max_tokens),
     )
 
 

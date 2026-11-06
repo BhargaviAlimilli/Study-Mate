@@ -30,7 +30,7 @@ def create_document_embeddings(
 
 
 def get_document_embeddings(
-    query: str, *, user_id: str, k: int = 4
+    query: str, *, user_id: str, k: int = 4, document_id: str | None = None
 ) -> list[Document]:
     """Return relevant stored chunks for chat, not the raw embedding vectors."""
     if not query.strip():
@@ -43,6 +43,10 @@ def get_document_embeddings(
     scope = models.Filter(must=[
         models.FieldCondition(key="metadata.user_id", match=models.MatchValue(value=user_id)),
     ])
+    if document_id is not None:
+        scope.must.append(models.FieldCondition(
+            key="metadata.document_id", match=models.MatchValue(value=document_id)
+        ))
     store = get_vector_store()
     try:
         return store.similarity_search(query=query.strip(), k=k, filter=scope)

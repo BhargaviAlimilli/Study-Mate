@@ -121,7 +121,7 @@ Evidence IDs are kept in internal agent output and validated against retrieved
 passages, but are not returned to clients. This check does not independently
 prove that the evidence supports every claim.
 Scope and evidence judgments depend on the model and should be evaluated with
-representative documents. Quiz generation remains deferred.
+representative documents. Saved quiz generation is available through the separate quiz endpoint; in-chat quizzes and scoring remain deferred.
 
 No passages or no collection returns an upload/clarification message without
 calling the model. Invalid queries return 422; missing authentication returns
@@ -205,7 +205,7 @@ to save their original PDFs and PostgreSQL metadata.
 1. Document persistence and authenticated PDF viewing: implemented.
 2. Saved conversations and contextual follow-ups: implemented.
 3. Optional supporting-page metadata and clearly labelled teaching comparisons.
-4. Generate five saved, validated MCQs from uploaded notes.
+4. Generate five saved, validated MCQs from uploaded notes: implemented.
 5. Submit quizzes, score deterministically, and persist attempts.
 6. Identify revision topics from attempts and save a revision list.
 
@@ -322,3 +322,44 @@ or an exactly-once guarantee for external model calls.
 Run checkpoint setup once before serving requests. If the initial checkpoint
 was never committed, resubmit the original question rather than invoking resume.
 Checkpoint retention/pruning is not yet implemented.
+
+## Saved practice quizzes
+
+Run the database migration (`python -m alembic upgrade head` inside `backend/`).
+The authenticated quiz endpoints are:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/quizzes` | Generate and save five multiple-choice questions |
+| GET | `/quizzes?limit=20&offset=0` | List your saved quizzes |
+| GET | `/quizzes/{quiz_id}` | Retrieve saved questions and options |
+
+Example request (omit `document_id` to search all your ready documents):
+
+```json
+{"topic": "JavaScript promises", "question_count": 5}
+```
+
+The response contains the saved quiz ID, topic, creation time, optional document
+ID, and five questions with IDs, positions, and four options. It never exposes
+correct indexes, explanations, topic-level answer metadata, or source evidence.
+These remain in PostgreSQL `quiz_questions` for future scoring and revision.
+Quiz and question rows commit together in one transaction. Retrieval always
+filters by the authenticated user and, if supplied, the selected owned ready
+PDF. Saved quizzes can be reopened after an API restart without regenerating.
+
+The model uses the same Claude provider configured for chat, with a separate
+assessment prompt and structured output. Validation checks exact count, distinct
+questions, four distinct non-empty options, answer index range, explanations,
+topic tags, and evidence IDs. These structural checks do not independently prove
+that an answer is semantically correct; assessment quality needs evaluation with
+representative notes. Insufficient evidence returns 422 rather than fabricated
+questions. Provider/invalid-output failures return 502, search/storage failures
+503, and generation timeouts 504. Unknown/other-user quiz or document IDs return
+404. An unready selected document returns 409.
+
+Scoring, answer submission, and revision tracking remain the next milestone.
+Chat does not yet dispatch quiz requests; use the dedicated quiz endpoint.
+Quiz generation currently runs in the request, outside the chat checkpoint graph.
+Repeating a successful POST creates a new quiz; saved retrieval via GET does not
+call the model. No original PDF is written to the repository.
