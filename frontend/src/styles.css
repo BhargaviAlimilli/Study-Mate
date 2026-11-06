@@ -3643,6 +3643,28 @@ em {
 .option-letter {
   color: #465a3d;
 }
+.composer-toolbar .voice-recording {
+  background: #f8e6df;
+  color: #9c3d27;
+  outline: 1px solid #bd7766;
+}
+.voice-hint {
+  font-size: 11px;
+  color: #465a3d;
+  background: #edf3e7;
+  border: 1px solid #c5d2b7;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+.voice-disclosure {
+  font-size: 10.5px;
+  color: #526347;
+}
+.voice-error {
+  color: #9a4c3c;
+  font-size: 11px;
+}
 @media (prefers-reduced-motion: reduce) {
   * {
     animation: none !important;

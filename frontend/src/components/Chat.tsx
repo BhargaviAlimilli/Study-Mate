@@ -10,10 +10,9 @@ import {
   FileText,
   ImagePlus,
   ListChecks,
-  Mic,
+  FileAudio,
   Paperclip,
   Sparkles,
-  Volume2,
   X,
 } from 'lucide-react'
 import { allPages, ApiError, isAbort, json, request } from '../api'
@@ -27,12 +26,14 @@ import type {
   User,
 } from '../types'
 import { ErrorNotice, Spinner } from './ui'
+import { Dictation, ReadAloud } from './Voice'
 
 export default function Chat({
   token,
   user,
   conversationId,
   newSession,
+  isActive = true,
   onConversation,
   onUpload,
   onEvidence,
@@ -42,6 +43,7 @@ export default function Chat({
   user: User
   conversationId: string | null
   newSession: number
+  isActive?: boolean
   onConversation: (id: string) => void
   onUpload: () => void
   onEvidence: (requestId: string) => void
@@ -59,7 +61,8 @@ export default function Chat({
     [loading, setLoading] = useState(false),
     [error, setError] = useState<unknown>(null),
     [resumeId, setResumeId] = useState<string | null>(null),
-    [attachment, setAttachment] = useState<File | null>(null)
+    [attachment, setAttachment] = useState<File | null>(null),
+    [dictating, setDictating] = useState(false)
   const imageInput = useRef<HTMLInputElement>(null),
     voiceInput = useRef<HTMLInputElement>(null)
   const docs = useQuery({
@@ -145,7 +148,7 @@ export default function Chat({
   }
   async function send(event?: FormEvent, voice?: File) {
     event?.preventDefault()
-    if (busy || (!query.trim() && !voice && !attachment)) return
+    if (busy || dictating || (!query.trim() && !voice && !attachment)) return
     const text = query.trim(),
       file = attachment,
       controller = new AbortController()
@@ -350,6 +353,7 @@ export default function Chat({
                 message={message}
                 token={token}
                 voiceEnabled={!!models.data?.voice_configured}
+                active={isActive}
                 user={user}
                 onEvidence={onEvidence}
                 onQuiz={onQuiz}
@@ -378,6 +382,12 @@ export default function Chat({
           <button className="text-link" disabled={busy} onClick={() => void resume()}>
             Continue the interrupted answer <ArrowUpRight size={14.7} />
           </button>
+        )}
+        {dictating && (
+          <p className="voice-hint" role="status">
+            Listening? Speak your question, then stop and review the text before sending. Your
+            browser provider may process the audio.
+          </p>
         )}
         <form className="composer" onSubmit={(e) => void send(e)}>
           {attachment && (
@@ -408,7 +418,7 @@ export default function Chat({
               }
             }}
             rows={2}
-            disabled={busy || loading}
+            disabled={busy || loading || dictating}
           />
           <div className="composer-toolbar">
             <div>
@@ -435,20 +445,26 @@ export default function Chat({
               >
                 <ImagePlus size={18.9} />
               </button>
-              <button
-                type="button"
-                className="icon-btn"
-                disabled={!models.data?.voice_configured || busy}
-                title={
-                  models.data?.voice_configured
-                    ? 'Upload an audio question'
-                    : 'Voice is not configured on the server'
-                }
-                aria-label="Upload voice question"
-                onClick={() => voiceInput.current?.click()}
-              >
-                <Mic size={18.9} />
-              </button>
+              <Dictation
+                key={String(conversationId) + '-' + newSession}
+                disabled={busy || loading || !isActive}
+                text={query}
+                onText={setQuery}
+                onError={setError}
+                onListening={setDictating}
+              />
+              {models.data?.voice_configured && (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  disabled={busy || dictating}
+                  title="Upload an audio recording (server transcription)"
+                  aria-label="Upload voice question"
+                  onClick={() => voiceInput.current?.click()}
+                >
+                  <FileAudio size={18.9} />
+                </button>
+              )}
               <span className="toolbar-divider" />
               <select
                 aria-label="Document scope"
@@ -467,7 +483,11 @@ export default function Chat({
             <button
               className="send-button"
               disabled={
-                busy || loading || (!query.trim() && !attachment) || (!attachment && !ready.length)
+                busy ||
+                loading ||
+                dictating ||
+                (!query.trim() && !attachment) ||
+                (!attachment && !ready.length)
               }
               aria-label="Send question"
             >
@@ -512,6 +532,7 @@ function Message({
   message,
   token,
   voiceEnabled,
+  active,
   user,
   onEvidence,
   onQuiz,
@@ -519,54 +540,13 @@ function Message({
   message: ChatMessage
   token: string
   voiceEnabled: boolean
+  active: boolean
   user: User
   onEvidence: (id: string) => void
   onQuiz: (quiz: Quiz) => void
 }) {
   const [copied, setCopied] = useState(false),
-    [speaking, setSpeaking] = useState(false),
     [error, setError] = useState<unknown>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null),
-    audioUrl = useRef(''),
-    speechRequest = useRef<AbortController | null>(null)
-  useEffect(
-    () => () => {
-      speechRequest.current?.abort()
-      audioRef.current?.pause()
-      if (audioUrl.current) URL.revokeObjectURL(audioUrl.current)
-    },
-    [],
-  )
-  async function speak() {
-    if (speaking) {
-      speechRequest.current?.abort()
-      audioRef.current?.pause()
-      setSpeaking(false)
-      return
-    }
-    setSpeaking(true)
-    setError(null)
-    const controller = new AbortController()
-    speechRequest.current = controller
-    try {
-      const blob = await request<Blob>('/media/speech', token, {
-        ...json({ text: message.content }),
-        signal: controller.signal,
-      })
-      if (controller.signal.aborted) return
-      if (audioUrl.current) URL.revokeObjectURL(audioUrl.current)
-      audioUrl.current = URL.createObjectURL(blob)
-      const audio = new Audio(audioUrl.current)
-      audioRef.current = audio
-      audio.onended = () => setSpeaking(false)
-      await audio.play()
-    } catch (e) {
-      if (!controller.signal.aborted) {
-        setError(e)
-        setSpeaking(false)
-      }
-    }
-  }
   return (
     <article className={`message ${message.role}`}>
       <span className={`avatar ${message.role === 'user' ? 'user' : 'assistant'}`}>
@@ -614,12 +594,13 @@ function Message({
               {copied ? <Check size={13.65} /> : <Copy size={13.65} />}
               {copied ? 'Copied' : 'Copy'}
             </button>
-            {voiceEnabled && message.content.length <= 3000 && (
-              <button onClick={() => void speak()}>
-                <Volume2 size={13.65} />
-                {speaking ? 'Stop audio' : 'Read aloud'}
-                <span className="sr-only"> · AI-generated voice</span>
-              </button>
+            {message.content.length <= 3000 && (
+              <ReadAloud
+                text={message.content}
+                token={token}
+                serverVoice={voiceEnabled}
+                active={active}
+              />
             )}
           </div>
         )}

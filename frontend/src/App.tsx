@@ -201,6 +201,7 @@ function Workspace({
             user={user}
             conversationId={conversation}
             newSession={newSession}
+            isActive={view === 'study'}
             onConversation={setConversation}
             onUpload={() => setUpload(true)}
             onEvidence={(requestId) => setEvidence({ requestId })}
