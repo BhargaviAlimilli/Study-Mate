@@ -115,7 +115,7 @@ defines its role, tone, evidence rules, and few-shot examples. Retrieved text
 and questions are treated as untrusted data; they cannot override those rules.
 The tutor provides concise teaching steps, not private chain-of-thought.
 
-Responses contain only `status` and `answer`. Status is `answered`,
+Responses contain `status`, `answer`, `conversation_id`, and `request_id`. Status is `answered`,
 `out_of_scope`, `insufficient_context`, or `quiz_unavailable`. The answer uses plain explanations without inline references or source dumps.
 Evidence IDs are kept in internal agent output and validated against retrieved
 passages, but are not returned to clients. This check does not independently
@@ -127,8 +127,9 @@ No passages or no collection returns an upload/clarification message without
 calling the model. Invalid queries return 422; missing authentication returns
 401; retrieval/model failures return 503; model timeouts return 504. Blocking
 retrieval runs in a thread pool. The OpenAI Agents SDK uses its LiteLLM adapter
-to call Anthropic, with OpenAI tracing disabled. Requests currently have no
-persisted conversation history; questions must be self-contained.
+to call Anthropic, with OpenAI tracing disabled. Conversations and messages are persisted in PostgreSQL. The model receives
+up to 12 recent messages. Retrieval includes the current query and up to three
+recent user questions to help resolve contextual follow-ups.
 
 ### FastAPI server
 
@@ -202,7 +203,7 @@ to save their original PDFs and PostgreSQL metadata.
 ## Remaining backend milestones
 
 1. Document persistence and authenticated PDF viewing: implemented.
-2. Saved conversations and contextual follow-ups.
+2. Saved conversations and contextual follow-ups: implemented.
 3. Optional supporting-page metadata and clearly labelled teaching comparisons.
 4. Generate five saved, validated MCQs from uploaded notes.
 5. Submit quizzes, score deterministically, and persist attempts.
@@ -219,3 +220,105 @@ migration does not delete legacy files during its transaction; after a successfu
 backfill, remove verified legacy copies. This workspace had no legacy documents
 when the migration was applied. Rollback to filesystem storage requires a
 forward migration so that database PDF content is not discarded.
+
+## Persistent conversations
+
+No additional package is required: SQLAlchemy and PostgreSQL save history, and
+Alembic migration `0004_conversations` creates `conversations` and `messages`.
+The Agents SDK remains the model runner. LangGraph now wraps retrieval,
+model generation, and response validation with PostgreSQL-backed execution
+checkpoints. Conversation/message tables remain the user-facing history.
+
+Start with `POST /query`:
+
+```json
+{"query": "Explain promises"}
+```
+
+The response includes `conversation_id`, `request_id`, `status`, and `answer`. Continue with:
+
+```json
+{"query": "Give me another example", "conversation_id": "<returned UUID>"}
+```
+
+- `GET /conversations?limit=20&offset=0`: list your conversations.
+- `GET /conversations/{id}`: get owned conversation metadata.
+- `GET /conversations/{id}/messages?limit=100&offset=0`: ordered saved messages.
+
+Every endpoint requires a bearer token; unknown and other-user IDs return 404.
+Conversation titles use the first question's first 100 characters. All messages
+remain stored; only the latest 12 are included in a model call. History provides
+context, not factual evidence or instructions: answers still use fresh retrieved
+passages and reference IDs are scoped to the current question.
+
+Each completed question/answer pair is committed together, including polite
+refusals and insufficient-context replies. Provider or retrieval failures don't
+save incomplete exchanges. The API returns success only after the history is
+saved. A version check returns 409 when two requests attempt to extend the same
+history concurrently, preventing mixed conversation turns. A new request can
+retry using the latest history. This does not deduplicate retries after a client
+loses an already-successful HTTP response.
+
+History survives process restarts because it is in PostgreSQL, not an in-memory
+cache. Follow-up retrieval currently combines recent questions rather than using
+a separate model-generated query rewrite. Summarization of older history and
+semantic long-term memory are deferred.
+
+## LangGraph execution checkpoints
+
+Packages already present: `langgraph`, `langgraph-checkpoint-postgres`, and
+`psycopg`. `app/ai/graph.py` compiles this workflow:
+
+```text
+retrieve passages -> generate tutor answer -> validate evidence IDs -> end
+```
+
+LangGraph uses `PostgresSaver` with `durability="sync"` to commit state at node
+boundaries. Setup was applied locally. For a new database, run from `backend/`
+with the virtual environment active:
+
+```powershell
+python -m alembic upgrade head
+python -m app.ai.graph
+```
+
+Alembic owns the application tables and request-ID migration. PostgresSaver's
+`setup()` owns `checkpoints`, `checkpoint_blobs`, `checkpoint_writes`, and
+`checkpoint_migrations`; Alembic deliberately excludes these from autogeneration.
+All checkpoints, including retrieved text and pending answers, stay in PostgreSQL.
+
+A thread is scoped to the authenticated user and one chat request, not shared
+across different requests or users. Supply a fresh UUID `request_id` before
+sending a new question when recovery after a lost connection is important:
+
+```json
+{"query": "Explain promises", "request_id": "<fresh UUID>", "conversation_id": "<optional existing UUID>"}
+```
+
+The API generates an ID if omitted. Success and processing errors include the
+request ID. Resume without sending the question again:
+
+```text
+POST /chat-runs/{request_id}/resume
+Authorization: Bearer <token>
+```
+
+Alternatively, resend `/query` with the same request ID and identical question.
+Completed runs reuse their saved answer. A reused ID with a different question
+or conversation returns 409. Missing or another user's run returns 404. A
+PostgreSQL advisory lock prevents simultaneous execution of the same run across
+processes. Two different runs extending the same conversation still use its
+version check; if history changed, submit a fresh request ID against the latest
+conversation instead of resuming the stale turn.
+
+Message request IDs and a transaction make saving completed turns idempotent,
+including a crash after committing messages but before delivering the response.
+Resume retries pending nodes; it does not redo already checkpointed retrieval or
+generation. An interrupted node starts again from its beginning. If a model call
+succeeded externally but the process died before its output was checkpointed,
+that call can repeat. This is node-boundary recovery, not token-level recovery
+or an exactly-once guarantee for external model calls.
+
+Run checkpoint setup once before serving requests. If the initial checkpoint
+was never committed, resubmit the original question rather than invoking resume.
+Checkpoint retention/pruning is not yet implemented.

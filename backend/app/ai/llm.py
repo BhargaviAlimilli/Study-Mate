@@ -25,12 +25,12 @@ def create_agent() -> Agent:
     )
 
 
-async def generate_reply(question: str, passages: list[dict]) -> TutorAnswer:
+async def generate_reply(question: str, passages: list[dict], history: list[dict] | None = None) -> TutorAnswer:
     if not question.strip():
         raise ValueError("The question must not be empty.")
     result = await Runner.run(
         create_agent(),
-        json.dumps({"question": question, "passages": passages}, ensure_ascii=False),
+        json.dumps({"question": question, "passages": passages, "history": history or []}, ensure_ascii=False),
         # No OpenAI tracing credentials are needed for this Claude-only call.
         run_config=RunConfig(tracing_disabled=True),
     )
