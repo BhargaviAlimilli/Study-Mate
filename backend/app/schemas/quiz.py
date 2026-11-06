@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -71,3 +71,49 @@ class QuizSummary(BaseModel):
     question_count: int
     document_id: UUID | None
     created_at: datetime
+
+
+class SubmittedAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question_id: UUID
+    selected_index: int = Field(ge=0, le=3, strict=True)
+
+
+class QuizSubmission(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    submission_id: UUID = Field(default_factory=uuid4)
+    answers: list[SubmittedAnswer] = Field(min_length=5, max_length=5)
+
+    @model_validator(mode="after")
+    def unique_questions(self):
+        if len({answer.question_id for answer in self.answers}) != len(self.answers):
+            raise ValueError("Submit each question exactly once.")
+        return self
+
+
+class AttemptAnswerResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    question_id: UUID
+    position: int
+    question: str
+    options: list[str]
+    selected_index: int
+    correct_index: int
+    is_correct: bool
+    explanation: str
+    topic: str
+
+
+class AttemptSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    quiz_id: UUID
+    submission_id: UUID
+    score: int
+    total: int
+    percentage: float
+    submitted_at: datetime
+
+
+class AttemptResponse(AttemptSummary):
+    answers: list[AttemptAnswerResponse]

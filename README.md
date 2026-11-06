@@ -206,7 +206,7 @@ to save their original PDFs and PostgreSQL metadata.
 2. Saved conversations and contextual follow-ups: implemented.
 3. Optional supporting-page metadata and clearly labelled teaching comparisons.
 4. Generate five saved, validated MCQs from uploaded notes: implemented.
-5. Submit quizzes, score deterministically, and persist attempts.
+5. Submit quizzes, score deterministically, and persist attempts: implemented.
 6. Identify revision topics from attempts and save a revision list.
 
 UI and background ingestion remain deferred. Workspaces are not required for
@@ -358,8 +358,53 @@ questions. Provider/invalid-output failures return 502, search/storage failures
 503, and generation timeouts 504. Unknown/other-user quiz or document IDs return
 404. An unready selected document returns 409.
 
-Scoring, answer submission, and revision tracking remain the next milestone.
+Answer submission and saved scoring are implemented below; revision tracking is the next milestone.
 Chat does not yet dispatch quiz requests; use the dedicated quiz endpoint.
 Quiz generation currently runs in the request, outside the chat checkpoint graph.
 Repeating a successful POST creates a new quiz; saved retrieval via GET does not
 call the model. No original PDF is written to the repository.
+
+## Submit answers and reopen results
+
+Use `POST /quizzes/{quiz_id}/submit` with the five question IDs returned by the
+saved quiz. `selected_index` is zero-based: 0, 1, 2, or 3. Include all five
+questions exactly once. Do not send an answer key or score.
+
+```json
+{
+  "answers": [
+    {"question_id": "<first question UUID>", "selected_index": 0},
+    {"question_id": "<second question UUID>", "selected_index": 2},
+    {"question_id": "<third question UUID>", "selected_index": 1},
+    {"question_id": "<fourth question UUID>", "selected_index": 3},
+    {"question_id": "<fifth question UUID>", "selected_index": 0}
+  ]
+}
+```
+
+The response returns an attempt `id`, quiz ID, submission ID, score out of five,
+percentage, submission time, and per-question results including your selected
+index, correct index, correctness, explanation, and topic. These results are
+available only after submission. Original quiz GET responses continue to hide
+answers and explanations. Scoring compares choices with the stored answer key
+in Python; it does not call an LLM.
+
+- `GET /quizzes/{quiz_id}/attempts`: paginated attempt summaries.
+- `GET /quizzes/{quiz_id}/attempts/{attempt_id}`: reopen a complete saved result.
+
+Migration `0007_quiz_attempts` creates `quiz_attempts` and `quiz_attempt_answers`.
+Scores and answer snapshots commit together, and remain available after restart.
+Snapshot fields preserve the question, options, answer key, explanation, topic,
+and internal evidence used when scoring that attempt. No filesystem files are
+created. Every endpoint requires authentication and checks quiz/attempt ownership.
+
+For safe retries, optionally include a fresh UUID `submission_id` in the request.
+The server generates one if omitted. Identical answers with the same submission
+ID return the saved result with HTTP 200; first saves return 201. Reusing that ID
+with different answers or a different quiz returns 409. A fresh ID creates a new
+practice attempt. Missing, repeated, foreign, or unknown question IDs and invalid
+option indexes return 422. Unknown or another user's quiz/attempt returns 404.
+A failed save rolls back both the attempt and its answers and returns 503.
+
+Weak-topic aggregation and revision recommendations are not yet implemented;
+topic labels and correctness are saved now as their inputs.

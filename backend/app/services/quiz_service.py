@@ -5,14 +5,15 @@ from uuid import UUID
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from starlette.concurrency import run_in_threadpool
 
 from app.ai.quiz import generate_quiz
 from app.ai.rag import get_document_embeddings
 from app.ai.vectorstore import MissingCollectionError
 from app.models.document import DocumentRecord
-from app.models.quiz import Quiz, QuizQuestion
-from app.schemas.quiz import QuizRequest, QuizResponse, GeneratedQuiz
+from app.models.quiz import Quiz, QuizQuestion, QuizAttempt, QuizAttemptAnswer
+from app.schemas.quiz import QuizRequest, QuizResponse, GeneratedQuiz, QuizSubmission, AttemptResponse
 from app.services.document_service import get_owned_document
 
 logger = logging.getLogger(__name__)
@@ -100,3 +101,64 @@ def get_owned_quiz(quiz_id: UUID, user_id: UUID, db: Session) -> Quiz:
     if quiz is None:
         raise HTTPException(status_code=404, detail="Quiz not found.")
     return quiz
+
+
+def existing_submission(data: QuizSubmission, quiz_id: UUID, user_id: UUID, db: Session) -> QuizAttempt | None:
+    saved = db.scalar(select(QuizAttempt).where(
+        QuizAttempt.user_id == user_id, QuizAttempt.submission_id == data.submission_id
+    ))
+    if saved is not None:
+        previous = {answer.question_id: answer.selected_index for answer in saved.answers}
+        submitted = {answer.question_id: answer.selected_index for answer in data.answers}
+        if saved.quiz_id != quiz_id or previous != submitted:
+            raise HTTPException(status_code=409, detail="This submission ID has already been used with different answers or a different quiz.")
+    return saved
+
+
+def submit_quiz(quiz_id: UUID, data: QuizSubmission, user_id: UUID, db: Session) -> tuple[AttemptResponse, bool]:
+    quiz = get_owned_quiz(quiz_id, user_id, db)
+    saved = existing_submission(data, quiz_id, user_id, db)
+    if saved is not None:
+        return AttemptResponse.model_validate(saved), False
+    selections = {answer.question_id: answer.selected_index for answer in data.answers}
+    if set(selections) != {question.id for question in quiz.questions}:
+        raise HTTPException(status_code=422, detail="Answers must include every question from this quiz exactly once.")
+    # Scoring is application logic: no model call and no client-supplied score.
+    attempt = QuizAttempt(
+        quiz_id=quiz_id, user_id=user_id, submission_id=data.submission_id,
+        total=len(quiz.questions),
+        score=sum(selections[question.id] == question.correct_index for question in quiz.questions),
+    )
+    attempt.answers = [QuizAttemptAnswer(
+        question_id=question.id, position=question.position, selected_index=selections[question.id],
+        correct_index=question.correct_index, is_correct=selections[question.id] == question.correct_index,
+        question=question.question, options=list(question.options), explanation=question.explanation,
+        topic=question.topic, evidence=question.evidence,
+    ) for question in quiz.questions]
+    try:
+        db.add(attempt)
+        db.commit()
+        db.refresh(attempt)
+        return AttemptResponse.model_validate(attempt), True
+    except IntegrityError as exc:
+        db.rollback()
+        # A concurrent retry may have saved this same submission first.
+        saved = existing_submission(data, quiz_id, user_id, db)
+        if saved is not None:
+            return AttemptResponse.model_validate(saved), False
+        logger.error("Attempt constraint failure (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="The quiz attempt could not be saved.") from exc
+    except Exception as exc:
+        db.rollback()
+        logger.error("Attempt save failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="The quiz attempt could not be saved.") from exc
+
+
+def get_owned_attempt(quiz_id: UUID, attempt_id: UUID, user_id: UUID, db: Session) -> QuizAttempt:
+    get_owned_quiz(quiz_id, user_id, db)
+    attempt = db.scalar(select(QuizAttempt).where(
+        QuizAttempt.id == attempt_id, QuizAttempt.quiz_id == quiz_id, QuizAttempt.user_id == user_id
+    ))
+    if attempt is None:
+        raise HTTPException(status_code=404, detail="Quiz attempt not found.")
+    return attempt

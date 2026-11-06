@@ -14,7 +14,7 @@ from app.core.security import get_current_user
 from app.main import app
 from app.models.user import User
 from app.models.document import DocumentRecord
-from app.models.quiz import Quiz, QuizQuestion
+from app.models.quiz import Quiz, QuizQuestion, QuizAttempt, QuizAttemptAnswer
 from app.schemas.quiz import GeneratedQuiz
 from app.services import quiz_service
 
@@ -169,3 +169,124 @@ def test_quiz_requires_authentication():
     with TestClient(app) as client:
         assert client.post('/quizzes', json={'topic': 'Promises'}).status_code == 401
         assert client.get('/quizzes').status_code == 401
+
+
+def saved_quiz(client):
+    response = client.post('/quizzes', json={'topic': 'Promises'})
+    assert response.status_code == 201
+    return response.json()
+
+
+def submission(quiz, mode='correct'):
+    return {'submission_id': str(uuid4()), 'answers': [
+        {'question_id': q['id'], 'selected_index': index % 4 if mode == 'correct' else (index + 1) % 4}
+        for index, q in enumerate(quiz['questions'])
+    ]}
+
+
+@pytest.mark.parametrize('mode,score', [('correct', 5), ('wrong', 0)])
+def test_submit_score_and_save_results(quiz_client, mode, score):
+    client, _, _, engine, _, model, _ = quiz_client
+    quiz = saved_quiz(client)
+    response = client.post(f"/quizzes/{quiz['id']}/submit", json=submission(quiz, mode))
+    assert response.status_code == 201
+    result = response.json()
+    assert (result['score'], result['total'], result['percentage']) == (score, 5, score * 20)
+    assert len(result['answers']) == 5
+    assert all(a['is_correct'] == (mode == 'correct') for a in result['answers'])
+    assert result['answers'][0]['explanation'] == 'Internal answer explanation.'
+    assert model.call_count == 1  # Only quiz generation calls the model.
+    assert client.get(f"/quizzes/{quiz['id']}/attempts/{result['id']}").json() == result
+    assert client.get(f"/quizzes/{quiz['id']}/attempts").json()[0]['id'] == result['id']
+    with Session(engine) as db:
+        assert db.scalar(select(func.count()).select_from(QuizAttempt)) == 1
+        assert db.scalar(select(func.count()).select_from(QuizAttemptAnswer)) == 5
+    # The pre-submission quiz API still never includes the answer key.
+    assert 'correct_index' not in client.get('/quizzes/' + quiz['id']).text
+
+
+def test_mixed_score_idempotency_and_ownership(quiz_client):
+    client, owner, _, engine, _, _, _ = quiz_client
+    quiz = saved_quiz(client)
+    payload = submission(quiz)
+    payload['answers'][-1]['selected_index'] = 1
+    first = client.post(f"/quizzes/{quiz['id']}/submit", json=payload)
+    assert first.json()['score'] == 4 and first.json()['percentage'] == 80
+    payload['answers'].reverse()
+    repeated = client.post(f"/quizzes/{quiz['id']}/submit", json=payload)
+    assert repeated.status_code == 200 and repeated.json() == first.json()
+    payload['answers'][0]['selected_index'] = 2
+    assert client.post(f"/quizzes/{quiz['id']}/submit", json=payload).status_code == 409
+    with Session(engine) as db:
+        assert db.scalar(select(func.count()).select_from(QuizAttempt)) == 1
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid4())
+    assert client.post(f"/quizzes/{quiz['id']}/submit", json=payload).status_code == 404
+    assert client.get(f"/quizzes/{quiz['id']}/attempts").status_code == 404
+    assert client.get(f"/quizzes/{quiz['id']}/attempts/{first.json()['id']}").status_code == 404
+
+
+@pytest.mark.parametrize('defect', ['missing', 'duplicate', 'unknown', 'negative', 'large', 'bool', 'string', 'float', 'score'])
+def test_bad_submissions_are_not_saved(quiz_client, defect):
+    client, _, _, engine, _, _, _ = quiz_client
+    quiz = saved_quiz(client)
+    payload = submission(quiz)
+    if defect == 'missing':
+        payload['answers'].pop()
+    elif defect == 'duplicate':
+        payload['answers'][1]['question_id'] = payload['answers'][0]['question_id']
+    elif defect == 'unknown':
+        payload['answers'][0]['question_id'] = str(uuid4())
+    elif defect == 'score':
+        payload['score'] = 5
+    else:
+        payload['answers'][0]['selected_index'] = {'negative': -1, 'large': 4, 'bool': True, 'string': '0', 'float': 0.0}[defect]
+    assert client.post(f"/quizzes/{quiz['id']}/submit", json=payload).status_code == 422
+    with Session(engine) as db:
+        assert db.scalar(select(func.count()).select_from(QuizAttempt)) == 0
+
+
+def test_attempt_save_is_atomic(quiz_client):
+    from sqlalchemy import event
+    client, _, _, engine, _, _, _ = quiz_client
+    quiz = saved_quiz(client)
+    def fail_answers(connection, cursor, statement, parameters, context, many):
+        if statement.lstrip().upper().startswith('INSERT') and 'quiz_attempt_answers' in statement:
+            raise RuntimeError('Simulated database failure')
+    event.listen(engine, 'before_cursor_execute', fail_answers)
+    try:
+        assert client.post(f"/quizzes/{quiz['id']}/submit", json=submission(quiz)).status_code == 503
+    finally:
+        event.remove(engine, 'before_cursor_execute', fail_answers)
+    with Session(engine) as db:
+        assert db.scalar(select(func.count()).select_from(QuizAttempt)) == 0
+        assert db.scalar(select(func.count()).select_from(QuizAttemptAnswer)) == 0
+
+
+def test_attempt_survives_fresh_process(quiz_client):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+    client, owner, _, _, _, _, schema = quiz_client
+    quiz = saved_quiz(client)
+    attempt = client.post(f"/quizzes/{quiz['id']}/submit", json=submission(quiz)).json()
+    code = """
+import os
+from uuid import UUID
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from app.core.config import get_settings
+from app.services.quiz_service import get_owned_attempt
+from app.schemas.quiz import AttemptResponse
+engine = create_engine(get_settings().database_url).execution_options(schema_translate_map={None: os.environ['TEST_SCHEMA']})
+with Session(engine) as db:
+    saved = get_owned_attempt(UUID(os.environ['TEST_QUIZ']), UUID(os.environ['TEST_ATTEMPT']), UUID(os.environ['TEST_USER']), db)
+    result = AttemptResponse.model_validate(saved)
+    assert result.score == 5 and result.percentage == 100
+    assert len(result.answers) == 5 and all(a.is_correct for a in result.answers)
+engine.dispose()
+"""
+    env = dict(os.environ, TEST_SCHEMA=schema, TEST_USER=str(owner), TEST_QUIZ=quiz['id'], TEST_ATTEMPT=attempt['id'])
+    result = subprocess.run([sys.executable, '-c', code], env=env, cwd=Path(__file__).resolve().parents[1],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr

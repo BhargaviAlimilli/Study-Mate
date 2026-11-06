@@ -39,3 +39,46 @@ class QuizQuestion(Base):
     explanation: Mapped[str] = mapped_column(Text)
     topic: Mapped[str] = mapped_column(String(200))
     evidence: Mapped[list[dict]] = mapped_column(JSON)
+
+
+class QuizAttempt(Base):
+    __tablename__ = "quiz_attempts"
+    __table_args__ = (
+        UniqueConstraint("user_id", "submission_id", name="uq_quiz_attempt_submission"),
+        CheckConstraint("total = 5 AND score >= 0 AND score <= total", name="ck_quiz_attempt_score"),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    quiz_id: Mapped[UUID] = mapped_column(ForeignKey("quizzes.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    submission_id: Mapped[UUID]
+    score: Mapped[int]
+    total: Mapped[int] = mapped_column(default=5)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    answers: Mapped[list["QuizAttemptAnswer"]] = relationship(
+        cascade="all, delete-orphan", order_by="QuizAttemptAnswer.position", lazy="selectin"
+    )
+
+    @property
+    def percentage(self) -> float:
+        return round(self.score / self.total * 100, 2)
+
+
+class QuizAttemptAnswer(Base):
+    __tablename__ = "quiz_attempt_answers"
+    __table_args__ = (
+        UniqueConstraint("attempt_id", "question_id", name="uq_attempt_answer_question"),
+        UniqueConstraint("attempt_id", "position", name="uq_attempt_answer_position"),
+        CheckConstraint("selected_index BETWEEN 0 AND 3 AND correct_index BETWEEN 0 AND 3", name="ck_attempt_answer_indexes"),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    attempt_id: Mapped[UUID] = mapped_column(ForeignKey("quiz_attempts.id", ondelete="CASCADE"))
+    question_id: Mapped[UUID] = mapped_column(ForeignKey("quiz_questions.id", ondelete="CASCADE"))
+    position: Mapped[int]
+    selected_index: Mapped[int]
+    correct_index: Mapped[int]
+    is_correct: Mapped[bool]
+    question: Mapped[str] = mapped_column(Text)
+    options: Mapped[list[str]] = mapped_column(JSON)
+    explanation: Mapped[str] = mapped_column(Text)
+    topic: Mapped[str] = mapped_column(String(200))
+    evidence: Mapped[list[dict]] = mapped_column(JSON)
