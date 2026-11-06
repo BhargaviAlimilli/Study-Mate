@@ -91,6 +91,31 @@ class QuizSubmission(BaseModel):
         return self
 
 
+class ReviewSource(BaseModel):
+    document_id: UUID
+    filename: str
+    page: int
+    file_url: str
+    page_url: str
+
+
+class TopicFeedback(BaseModel):
+    topic: str
+    correct: int
+    total: int
+    feedback: str
+    question_ids: list[UUID]
+    sources: list[ReviewSource]
+
+
+class QuizFeedback(BaseModel):
+    summary: str
+    strengths: list[TopicFeedback]
+    needs_review: list[TopicFeedback]
+    next_steps: list[str]
+    assessment_note: str = "This feedback describes this attempt only. Topics not tested here have not been assessed."
+
+
 class AttemptAnswerResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     question_id: UUID
@@ -102,6 +127,7 @@ class AttemptAnswerResponse(BaseModel):
     is_correct: bool
     explanation: str
     topic: str
+    sources: list[ReviewSource] = Field(default_factory=list)
 
 
 class AttemptSummary(BaseModel):
@@ -117,3 +143,4 @@ class AttemptSummary(BaseModel):
 
 class AttemptResponse(AttemptSummary):
     answers: list[AttemptAnswerResponse]
+    feedback: QuizFeedback

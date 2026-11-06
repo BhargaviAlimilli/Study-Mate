@@ -11,6 +11,7 @@ from app.models.user import User
 from app.models.quiz import Quiz, QuizAttempt
 from app.schemas.quiz import QuizRequest, QuizResponse, QuizSummary, QuizSubmission, AttemptResponse, AttemptSummary
 from app.services.quiz_service import create_quiz, get_owned_quiz, submit_quiz, get_owned_attempt
+from app.services.feedback_service import build_attempt_response
 
 router = APIRouter(prefix="/quizzes", tags=["Quizzes"])
 Database = Annotated[Session, Depends(get_db)]
@@ -53,4 +54,4 @@ def attempts(quiz_id: UUID, user: CurrentUser, db: Database, limit: int = Query(
 @router.get("/{quiz_id}/attempts/{attempt_id}", response_model=AttemptResponse)
 def attempt(quiz_id: UUID, attempt_id: UUID, user: CurrentUser, db: Database, response: Response):
     response.headers["Cache-Control"] = "no-store"
-    return get_owned_attempt(quiz_id, attempt_id, user.id, db)
+    return build_attempt_response(get_owned_attempt(quiz_id, attempt_id, user.id, db))

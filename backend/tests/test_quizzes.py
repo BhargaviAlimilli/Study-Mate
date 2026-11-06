@@ -281,12 +281,72 @@ from app.schemas.quiz import AttemptResponse
 engine = create_engine(get_settings().database_url).execution_options(schema_translate_map={None: os.environ['TEST_SCHEMA']})
 with Session(engine) as db:
     saved = get_owned_attempt(UUID(os.environ['TEST_QUIZ']), UUID(os.environ['TEST_ATTEMPT']), UUID(os.environ['TEST_USER']), db)
-    result = AttemptResponse.model_validate(saved)
+    from app.services.feedback_service import build_attempt_response
+    result = build_attempt_response(saved)
     assert result.score == 5 and result.percentage == 100
     assert len(result.answers) == 5 and all(a.is_correct for a in result.answers)
+    assert len(result.feedback.strengths) == 5 and not result.feedback.needs_review
 engine.dispose()
 """
     env = dict(os.environ, TEST_SCHEMA=schema, TEST_USER=str(owner), TEST_QUIZ=quiz['id'], TEST_ATTEMPT=attempt['id'])
     result = subprocess.run([sys.executable, '-c', code], env=env, cwd=Path(__file__).resolve().parents[1],
                             capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr
+
+
+def test_feedback_groups_strengths_review_and_pdf_pages(quiz_client):
+    client, _, document_id, _, _, model, _ = quiz_client
+    output = generated()
+    topics = ['Promise basics', 'promise basics', 'Microtasks', 'Microtasks', 'Error handling']
+    for question, topic in zip(output['questions'], topics):
+        question['topic'] = topic
+    model.return_value = GeneratedQuiz.model_validate(output)
+    quiz = saved_quiz(client)
+    payload = submission(quiz)
+    payload['answers'][1]['selected_index'] = 0
+    payload['answers'][4]['selected_index'] = 1
+    response = client.post(f"/quizzes/{quiz['id']}/submit", json=payload)
+    assert response.status_code == 201
+    result = response.json()
+    feedback = result['feedback']
+    assert result['score'] == 3
+    assert '3 of 5' in feedback['summary']
+    assert len(feedback['strengths']) == 1
+    assert feedback['strengths'][0]['topic'] == 'Microtasks'
+    assert feedback['strengths'][0]['correct'] == feedback['strengths'][0]['total'] == 2
+    assert len(feedback['needs_review']) == 2
+    basics = feedback['needs_review'][0]
+    assert basics['topic'] == 'Promise basics'
+    assert (basics['correct'], basics['total']) == (1, 2)
+    assert basics['question_ids'] == [quiz['questions'][1]['id']]
+    assert len(basics['sources']) == 1
+    source = basics['sources'][0]
+    assert source == {
+        'document_id': str(document_id), 'filename': 'notes.pdf', 'page': 1,
+        'file_url': f'/documents/{document_id}/file',
+        'page_url': f'/documents/{document_id}/file?page=1',
+    }
+    assert result['answers'][1]['sources'] == basics['sources']
+    assert 'not been assessed' in feedback['assessment_note']
+    assert client.get(f"/quizzes/{quiz['id']}/attempts/{result['id']}").json()['feedback'] == feedback
+    assert 'Study material for five concepts' not in response.text
+    assert model.call_count == 1
+
+
+@pytest.mark.parametrize('mode,strengths,review', [('correct', 5, 0), ('wrong', 0, 5)])
+def test_feedback_all_correct_or_all_wrong(quiz_client, mode, strengths, review):
+    client = quiz_client[0]
+    quiz = saved_quiz(client)
+    feedback = client.post(f"/quizzes/{quiz['id']}/submit", json=submission(quiz, mode)).json()['feedback']
+    assert len(feedback['strengths']) == strengths
+    assert len(feedback['needs_review']) == review
+    assert feedback['next_steps']
+    assert 'mastered' not in feedback['summary'].lower()
+
+
+def test_source_links_skip_malformed_and_deduplicate_pages():
+    from app.services.feedback_service import review_sources
+    doc_id = str(uuid4())
+    valid = {'document_id': doc_id, 'filename': 'notes.pdf', 'page': 2}
+    assert len(review_sources([valid, valid])) == 1
+    assert review_sources([{}, dict(valid, document_id='not-a-uuid'), dict(valid, page=-1), dict(valid, page=True)]) == []

@@ -15,6 +15,7 @@ from app.models.document import DocumentRecord
 from app.models.quiz import Quiz, QuizQuestion, QuizAttempt, QuizAttemptAnswer
 from app.schemas.quiz import QuizRequest, QuizResponse, GeneratedQuiz, QuizSubmission, AttemptResponse
 from app.services.document_service import get_owned_document
+from app.services.feedback_service import build_attempt_response
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ def submit_quiz(quiz_id: UUID, data: QuizSubmission, user_id: UUID, db: Session)
     quiz = get_owned_quiz(quiz_id, user_id, db)
     saved = existing_submission(data, quiz_id, user_id, db)
     if saved is not None:
-        return AttemptResponse.model_validate(saved), False
+        return build_attempt_response(saved), False
     selections = {answer.question_id: answer.selected_index for answer in data.answers}
     if set(selections) != {question.id for question in quiz.questions}:
         raise HTTPException(status_code=422, detail="Answers must include every question from this quiz exactly once.")
@@ -139,13 +140,13 @@ def submit_quiz(quiz_id: UUID, data: QuizSubmission, user_id: UUID, db: Session)
         db.add(attempt)
         db.commit()
         db.refresh(attempt)
-        return AttemptResponse.model_validate(attempt), True
+        return build_attempt_response(attempt), True
     except IntegrityError as exc:
         db.rollback()
         # A concurrent retry may have saved this same submission first.
         saved = existing_submission(data, quiz_id, user_id, db)
         if saved is not None:
-            return AttemptResponse.model_validate(saved), False
+            return build_attempt_response(saved), False
         logger.error("Attempt constraint failure (%s)", type(exc).__name__)
         raise HTTPException(status_code=503, detail="The quiz attempt could not be saved.") from exc
     except Exception as exc:

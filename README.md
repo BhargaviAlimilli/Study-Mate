@@ -408,3 +408,36 @@ A failed save rolls back both the attempt and its answers and returns 503.
 
 Weak-topic aggregation and revision recommendations are not yet implemented;
 topic labels and correctness are saved now as their inputs.
+
+## Attempt feedback and PDF review links
+
+Submission responses and saved attempt detail responses now include `feedback`:
+
+- `summary`: a supportive explanation of the attempt's score.
+- `strengths`: assessed topics for which all submitted answers were correct.
+- `needs_review`: assessed topics with at least one incorrect answer, including
+  correct/total counts and the missed question IDs.
+- `next_steps`: review the explanations, revisit evidence pages, and practise again.
+- `assessment_note`: makes clear that untested topics have not been assessed.
+
+Each topic includes deduplicated `sources` containing document ID, filename,
+one-based page number, original `file_url`, and single-page `page_url`. Topics
+needing review point to evidence for their missed questions. Per-question
+results also include their source links. The explanations and correct options
+remain available in the post-submission answer results. No source text dump or
+new inline chat references are added.
+
+Example page URL: `/documents/<document-id>/file?page=7`. These are authenticated
+API URLs: fetch with the user's bearer header, read the response as a PDF blob,
+and display it in the viewer. Do not put JWTs in URLs. Swagger may display PDF
+bytes as text; use its Download option or a frontend PDF viewer.
+
+Feedback is calculated in `services/feedback_service.py` from saved attempt
+snapshots. It does not call an LLM, invent page references, infer untested
+weaknesses, or alter the score. Previously saved attempts receive the same
+feedback structure when reopened; no migration is required. Invalid or missing
+legacy evidence is omitted rather than turned into invented links. The linked
+PDF must still exist and be accessible to the current user.
+
+This is per-attempt feedback. Cross-attempt progress aggregation and a persistent
+revision list remain separate future work.
