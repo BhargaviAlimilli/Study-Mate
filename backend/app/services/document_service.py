@@ -1,7 +1,8 @@
 import logging
+import hashlib
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from fastapi import HTTPException, UploadFile
@@ -18,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 
 def process_document_upload(file: UploadFile, user_id: str, db: Session) -> DocumentUploadResponse:
+    lock_connection = None
+    lock_identity = None
     try:
         if not file.filename or not file.filename.lower().endswith(".pdf"):
             raise HTTPException(status_code=415, detail="Only PDF files are supported.")
@@ -38,12 +41,30 @@ def process_document_upload(file: UploadFile, user_id: str, db: Session) -> Docu
         filename = file.filename.replace("\\", "/").rsplit("/", 1)[-1]
         if not filename or len(filename) > 255:
             raise HTTPException(status_code=400, detail="The filename must contain 1 to 255 characters.")
-        document_id = uuid4()
-        record = DocumentRecord(
+        digest = hashlib.sha256(content).hexdigest()
+        identity = str(user_id) + ":" + digest
+        lock_connection = db.get_bind().connect()
+        locked = lock_connection.scalar(text("SELECT pg_try_advisory_lock(hashtextextended(:identity, 0))"), {"identity": identity})
+        lock_connection.commit()
+        if not locked:
+            raise HTTPException(status_code=409, detail="This document is already being processed. Retry later.")
+        lock_identity = identity
+        existing = db.scalar(select(DocumentRecord).where(
+            DocumentRecord.user_id == UUID(user_id), DocumentRecord.content_hash == digest))
+        if existing and existing.status == "ready":
+            db.commit()
+            return DocumentUploadResponse(document_id=existing.id, chunks_stored=existing.chunks_stored,
+                message="This document is already uploaded and indexed.")
+        document_id = existing.id if existing else uuid4()
+        record = existing or DocumentRecord(
             id=document_id, user_id=UUID(user_id), filename=filename,
-            pdf_content=content, size_bytes=len(content),
+            pdf_content=content, size_bytes=len(content), content_hash=digest,
+            embedding_model=get_settings().embedding_model_name,
             page_count=pages[0].metadata["total_pages"], chunks_stored=0, status="processing",
         )
+        record.status = "processing"
+        record.chunks_stored = 0
+        record.embedding_model = get_settings().embedding_model_name
         try:
             db.add(record)
             db.commit()
@@ -59,6 +80,8 @@ def process_document_upload(file: UploadFile, user_id: str, db: Session) -> Docu
         for index, chunk in enumerate(chunks):
             chunk.metadata["chunk_index"] = index
         try:
+            if existing:
+                delete_document_vectors(str(document_id), user_id)
             ids = create_document_embeddings(chunks, user_id=user_id)
             record.chunks_stored = len(ids)
             record.status = "ready"
@@ -82,6 +105,17 @@ def process_document_upload(file: UploadFile, user_id: str, db: Session) -> Docu
             ) from exc
         return DocumentUploadResponse(document_id=document_id, chunks_stored=len(ids))
     finally:
+        if lock_connection is not None:
+            try:
+                if lock_identity is not None:
+                    lock_connection.execute(text("SELECT pg_advisory_unlock(hashtextextended(:identity, 0))"), {"identity": lock_identity})
+                    lock_connection.commit()
+            except Exception as cleanup_error:
+                # Never return a pooled connection that might retain a session lock.
+                lock_connection.invalidate()
+                logger.error("Upload lock cleanup failed (%s)", type(cleanup_error).__name__)
+            finally:
+                lock_connection.close()
         file.file.close()
 
 

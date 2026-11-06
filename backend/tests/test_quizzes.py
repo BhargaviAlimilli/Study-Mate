@@ -350,3 +350,95 @@ def test_source_links_skip_malformed_and_deduplicate_pages():
     valid = {'document_id': doc_id, 'filename': 'notes.pdf', 'page': 2}
     assert len(review_sources([valid, valid])) == 1
     assert review_sources([{}, dict(valid, document_id='not-a-uuid'), dict(valid, page=-1), dict(valid, page=True)]) == []
+
+
+def test_revision_plan_progress_and_review_lifecycle(quiz_client):
+    client = quiz_client[0]
+    quiz = saved_quiz(client)
+    assert all(topic['status'] == 'not_assessed' for topic in client.get('/progress').json()['topics'])
+    first = client.post(f"/quizzes/{quiz['id']}/submit", json=submission(quiz, 'wrong'))
+    assert first.status_code == 201
+    revisions = client.get('/revisions?status=pending').json()
+    assert len(revisions) == 5
+    item = revisions[0]
+    assert item['sources'][0]['page_url'].endswith('?page=1')
+    assert client.patch('/revisions/' + item['id'], json={'status':'reviewed'}).status_code == 200
+    assert client.post('/revisions/sync').status_code == 200
+    assert len(client.get('/revisions?status=reviewed').json()) == 1
+    assert client.post(f"/quizzes/{quiz['id']}/submit", json=submission(quiz, 'wrong')).status_code == 201
+    assert len(client.get('/revisions?status=pending').json()) == 5
+    assert client.post('/revisions/' + item['id'] + '/quiz').status_code == 201
+    assert client.get('/progress/recommendations').json()['recommendations']
+    assert client.post(f"/quizzes/{quiz['id']}/submit", json=submission(quiz)).status_code == 201
+    report = client.get('/progress').json()
+    assert report['attempt_count'] == 3
+    assert all(topic['trend'] == 'improving' for topic in report['topics'])
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid4())
+    assert client.get('/revisions').json() == []
+    assert client.patch('/revisions/' + item['id'], json={'status':'reviewed'}).status_code == 404
+    assert client.post('/revisions/' + item['id'] + '/quiz').status_code == 404
+
+
+def test_editable_preferences(quiz_client, monkeypatch):
+    from app.ai import llm
+    monkeypatch.setattr(llm, 'ensure_provider_available', lambda provider: None)
+    client = quiz_client[0]
+    data = {'detail':'detailed','comparison_language':'Node.js','model_provider':'anthropic'}
+    assert client.put('/preferences', json=data).json() == data
+    assert client.get('/preferences').json() == data
+    assert client.put('/preferences', json={'detail':'unknown'}).status_code == 422
+
+
+def test_media_validation_and_mocked_providers(quiz_client, monkeypatch):
+    from io import BytesIO
+    from PIL import Image
+    from app.routes import media
+    client = quiz_client[0]
+    stream = BytesIO()
+    Image.new('RGB',(16,16),color='white').save(stream,format='PNG')
+    monkeypatch.setattr(media, 'create_agent', lambda **kwargs: object())
+    runner = AsyncMock(return_value=SimpleNamespace(final_output=media.ImageExplanation(status='answered',answer='An educational image explanation.')))
+    monkeypatch.setattr(media.Runner, 'run', runner)
+    assert client.post('/media/image-query', files={'file':('x.png', b'invalid','image/png')}).status_code == 400
+    image = client.post('/media/image-query', files={'file':('x.png',stream.getvalue(),'image/png')})
+    assert image.status_code == 200 and image.json()['grounding'] == 'uploaded_image'
+    assert client.post('/media/transcribe',files={'file':('x.txt',b'text','text/plain')}).status_code == 415
+    class FakeClient:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        audio = SimpleNamespace(transcriptions=SimpleNamespace(create=AsyncMock(return_value=SimpleNamespace(text='Explain promises'))),
+                                speech=SimpleNamespace(create=AsyncMock(return_value=SimpleNamespace(content=b'mp3 test'))))
+    monkeypatch.setattr(media, 'speech_client', lambda: FakeClient())
+    assert client.post('/media/transcribe',files={'file':('x.wav',b'RIFF test','audio/wav')}).json()['text'] == 'Explain promises'
+    speech = client.post('/media/speech',json={'text':'Hello learner'})
+    assert speech.status_code == 200 and speech.headers['content-type'] == 'audio/mpeg'
+    assert speech.headers['x-audio-generated'] == 'ai'
+
+
+def test_authenticated_read_only_mcp_tools(quiz_client, monkeypatch):
+    from app.ai import tools
+    from app.models.user import AuthSession
+    from app.core.security import create_access_token
+    from datetime import datetime, timedelta, timezone
+    client, owner, _, engine, _, _, _ = quiz_client
+    session_id = uuid4()
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=5)
+    with Session(engine) as db:
+        db.add(AuthSession(id=session_id, user_id=owner, expires_at=expiry))
+        db.commit()
+    monkeypatch.setattr(tools, 'SessionLocal', lambda: Session(engine,expire_on_commit=False))
+    token = create_access_token(owner,session_id,expiry)
+    headers = {'Authorization':'Bearer ' + token, 'Accept':'application/json, text/event-stream', 'Host':'127.0.0.1:8000'}
+    init = {'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2025-06-18','capabilities':{},'clientInfo':{'name':'tests','version':'1'}}}
+    assert client.post('/mcp',json=init,headers={'Accept':'application/json, text/event-stream'}).status_code == 401
+    started = client.post('/mcp',json=init,headers=headers)
+    assert started.status_code == 200, started.text
+    listed = client.post('/mcp',json={'jsonrpc':'2.0','id':2,'method':'tools/list'},headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert {tool['name'] for tool in listed.json()['result']['tools']} == {'search_notes','get_weak_topics'}
+    called = client.post('/mcp',json={'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':'get_weak_topics','arguments':{}}},headers=headers)
+    assert called.status_code == 200 and not called.json()['result'].get('isError'), called.text
+    with Session(engine) as db:
+        db.get(AuthSession,session_id).revoked_at = datetime.now(timezone.utc)
+        db.commit()
+    assert client.post('/mcp',json=init,headers=headers).status_code == 401

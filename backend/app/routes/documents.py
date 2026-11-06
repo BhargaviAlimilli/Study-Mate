@@ -52,3 +52,13 @@ def document_file(document_id: UUID, user: CurrentUser, db: Database, page: int 
     except Exception as exc:
         raise HTTPException(status_code=503, detail="The PDF page could not be opened.") from exc
     return Response(output.getvalue(), media_type="application/pdf", headers=headers)
+
+
+@router.post("/{document_id}/retry", response_model=DocumentUploadResponse)
+def retry_document(document_id: UUID, user: CurrentUser, db: Database):
+    from starlette.datastructures import Headers
+    record = get_owned_document(document_id,user.id,db)
+    if record.status == 'ready':
+        return DocumentUploadResponse(document_id=record.id,chunks_stored=record.chunks_stored,message='Document is already ready.')
+    file = UploadFile(file=BytesIO(record.pdf_content),filename=record.filename,headers=Headers({'content-type':'application/pdf'}))
+    return process_document_upload(file,str(user.id),db)

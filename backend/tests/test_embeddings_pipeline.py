@@ -51,3 +51,30 @@ def test_invalid_input_does_not_access_qdrant(monkeypatch):
     for query, k in [(' ', 4), ('python', 0), ('python', 21)]:
         with pytest.raises(ValueError):
             rag.get_document_embeddings(query, user_id='alice', k=k)
+
+
+def test_stable_chunk_ids_and_ready_document_filter(monkeypatch):
+    saved=[]
+    monkeypatch.setattr(rag,'add_documents',lambda docs,ids:saved.append(ids))
+    docs=[Document(page_content='Python notes',metadata={'document_id':'doc-1','chunk_index':0})]
+    first=rag.create_document_embeddings(docs,user_id='alice')
+    second=rag.create_document_embeddings(docs,user_id='alice')
+    assert first == second
+    assert rag.get_document_embeddings('Python',user_id='alice',document_ids=[]) == []
+
+
+def test_chat_drops_chunks_from_unready_documents(monkeypatch):
+    from app.services import chat_service
+    monkeypatch.setattr(chat_service,'get_document_embeddings',lambda *args,**kwargs:[Document(page_content='Partial upload',metadata={'document_id':'processing-id'})])
+    result=chat_service.retrieve_node({'history':[],'query':'Explain','user_id':'alice','ready_document_ids':['ready-id']})
+    assert result['passages'] == []
+
+
+def test_fixed_evaluation_fixture_is_complete():
+    from pathlib import Path
+    import json
+    fixture=json.loads((Path(__file__).resolve().parents[1]/'evaluation'/'cases.json').read_text())
+    assert len(fixture['questions']) == 20
+    pages={(item['document'],item['page']) for item in fixture['corpus']}
+    assert all((case['expected_document'],case['expected_page']) in pages for case in fixture['questions'] if case['expected_document'])
+    assert sum(case['expected_document'] is None for case in fixture['questions']) == 4

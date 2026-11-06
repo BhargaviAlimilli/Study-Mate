@@ -5,6 +5,7 @@ from app.models.user import AuthSession, User  # Register both tables with metad
 from app.models.document import DocumentRecord
 from app.models.conversation import Conversation, Message
 from app.models.quiz import Quiz, QuizQuestion, QuizAttempt, QuizAttemptAnswer
+from app.models.progress import RevisionItem, LearningPreferences
 
 
 def include_name(name, type_, parent_names):

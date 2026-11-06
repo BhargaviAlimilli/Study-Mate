@@ -1,6 +1,23 @@
 name: study-mate
 
 services:
+  api:
+    profiles: ["api"]
+    build:
+      context: ./backend
+    env_file: ./backend/.env
+    environment:
+      POSTGRES_SERVICE_HOST: postgres
+      QDRANT_URL: http://qdrant:6333
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    restart: unless-stopped
   postgres:
     image: postgres:17-alpine
     env_file:

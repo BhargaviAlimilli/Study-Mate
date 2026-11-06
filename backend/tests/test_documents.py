@@ -170,3 +170,28 @@ def test_failed_indexing_marks_document_failed(client, monkeypatch):
     assert documents[0]['chunks_stored'] == 0
     assert cleaned[0] == (documents[0]['id'], str(client[1]))
     assert client[0].get('/documents/' + documents[0]['id'] + '/file').status_code == 409
+
+
+def test_duplicate_upload_returns_existing_document(client, monkeypatch):
+    calls=[]
+    monkeypatch.setattr(document_service,'create_document_embeddings',lambda docs, **kwargs: calls.append(docs) or [str(uuid4()) for _ in docs])
+    http=client[0]
+    content=make_pdf()
+    first=http.post('/documents/upload',files={'file':('notes.pdf',content,'application/pdf')})
+    again=http.post('/documents/upload',files={'file':('renamed.pdf',content,'application/pdf')})
+    assert first.status_code == again.status_code == 201
+    assert first.json()['document_id'] == again.json()['document_id']
+    assert len(calls) == 1 and len(http.get('/documents').json()) == 1
+
+
+def test_failed_upload_can_retry_without_duplicate_record(client,monkeypatch):
+    http=client[0]
+    def fail(*args,**kwargs): raise RuntimeError('temporary failure')
+    monkeypatch.setattr(document_service,'create_document_embeddings',fail)
+    assert http.post('/documents/upload',files={'file':('notes.pdf',make_pdf(),'application/pdf')}).status_code == 503
+    record=http.get('/documents').json()[0]
+    monkeypatch.setattr(document_service,'create_document_embeddings',lambda docs,**kwargs:[str(uuid4()) for _ in docs])
+    retried=http.post('/documents/' + record['id'] + '/retry')
+    assert retried.status_code == 200 and retried.json()['document_id'] == record['id']
+    assert len(http.get('/documents').json()) == 1
+    assert http.get('/documents').json()[0]['status'] == 'ready'

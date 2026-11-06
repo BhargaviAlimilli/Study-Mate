@@ -10,6 +10,7 @@ from app.core.security import get_current_user
 from app.core.config import get_settings
 from app.core.database import Base, get_db
 from app.models.user import User
+from app.models.document import DocumentRecord
 from app.models.conversation import Conversation, Message
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
@@ -35,6 +36,9 @@ def chat(monkeypatch):
     owner = uuid4()
     with Session(test_engine) as db:
         db.add(User(id=owner, name='Chat test', email='chat@example.com', password_hash='test-only'))
+        db.flush()
+        document_id = uuid4()
+        db.add(DocumentRecord(id=document_id, user_id=owner, filename='notes.pdf', pdf_content=b'test', size_bytes=4, page_count=2, chunks_stored=1, status='ready'))
         db.commit()
     def test_db():
         with Session(test_engine, expire_on_commit=False) as db:
@@ -42,10 +46,10 @@ def chat(monkeypatch):
     app.dependency_overrides[get_db] = test_db
     app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=owner)
     retrieval = []
-    def retrieve(query, *, user_id, k):
+    def retrieve(query, *, user_id, k, **kwargs):
         retrieval.append((query, user_id))
         return [Document(page_content='A list is mutable.', metadata={
-            'document_id': 'doc-1', 'filename': 'notes.pdf', 'page': 2
+            'document_id': str(document_id), 'filename': 'notes.pdf', 'page': 2
         })]
     monkeypatch.setattr(chat_service, 'get_document_embeddings', retrieve)
     agent = AsyncMock(return_value=TutorAnswer(
@@ -278,3 +282,48 @@ engine.dispose()
     assert len(conversations) == 1
     messages = client.get('/conversations/' + conversations[0]['id'] + '/messages').json()
     assert len(messages) == 2 and messages[1]['content'] == 'Restored explanation'
+
+
+def test_summary_preferences_and_optional_evidence(chat):
+    client, _, _, model = chat
+    response = client.post('/query',json={'query':'Summarize the list concept','action':'summarize'})
+    assert response.status_code == 200, response.text
+    assert model.call_args.kwargs['action'] == 'summarize'
+    assert model.call_args.kwargs['preferences']['detail'] == 'balanced'
+    evidence = client.get('/chat-runs/' + response.json()['request_id'] + '/evidence')
+    assert evidence.status_code == 200 and evidence.json()[0]['page'] == 2
+    assert evidence.json()[0]['page_url'].endswith('?page=2')
+    assert 'sources' not in response.json()
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=uuid4())
+    assert client.get('/chat-runs/' + response.json()['request_id'] + '/evidence').status_code == 404
+
+
+def test_quiz_action_is_saved_and_replay_safe(chat,monkeypatch):
+    from app.services import quiz_service
+    from app.schemas.quiz import GeneratedQuiz
+    from test_quizzes import generated
+    client = chat[0]
+    monkeypatch.setattr(quiz_service,'get_document_embeddings',chat_service.get_document_embeddings)
+    generator = AsyncMock(return_value=GeneratedQuiz.model_validate(generated()))
+    monkeypatch.setattr(quiz_service,'generate_quiz',generator)
+    request_id = str(uuid4())
+    result = client.post('/query',json={'query':'Quiz me on lists','request_id':request_id})
+    assert result.status_code == 200, result.text
+    assert result.json()['status'] == 'quiz_ready'
+    assert len(result.json()['quiz']['questions']) == 5
+    repeated = client.post('/chat-runs/' + request_id + '/resume')
+    assert repeated.json() == result.json()
+    assert generator.call_count == 1
+    assert len(client.get('/quizzes').json()) == 1
+
+
+@pytest.mark.parametrize('query,expected',[
+    ('Can you quiz me on promises?','quiz'),
+    ('Please generate five practice questions','quiz'),
+    ('Could you summarize my notes?','summarize'),
+    ('Explain how to generate a quiz','answer'),
+    ('What is quiz scoring?','answer'),
+    ('Give me an example','answer'),
+])
+def test_action_routing_rules(query,expected):
+    assert chat_service.route_node({'query':query,'requested_action':'auto'})['action'] == expected

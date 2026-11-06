@@ -18,6 +18,12 @@ class ChatState(TypedDict, total=False):
     passages: list[dict]
     model_answer: dict | None
     response: dict
+    requested_action: str
+    action: str
+    document_id: str | None
+    ready_document_ids: list[str]
+    preferences: dict
+    evidence: list[dict]
 
 
 def get_checkpoint_uri() -> str:
@@ -44,12 +50,19 @@ def checkpoint_session(thread_id: str):
                 cursor.execute("SELECT pg_advisory_unlock(hashtextextended(%s, 0))", (thread_id,))
 
 
-def build_chat_graph(saver, retrieve, generate, validate):
+def build_chat_graph(saver, retrieve, generate, validate, route=None, quiz=None):
     graph = StateGraph(ChatState)
     graph.add_node("retrieve", retrieve)
     graph.add_node("generate", generate)
     graph.add_node("validate", validate)
-    graph.add_edge(START, "retrieve")
+    if route is not None:
+        graph.add_node("route", route)
+        graph.add_node("quiz", quiz)
+        graph.add_edge(START, "route")
+        graph.add_conditional_edges("route", lambda state: "quiz" if state["action"] == "quiz" else "retrieve")
+        graph.add_edge("quiz", END)
+    else:
+        graph.add_edge(START, "retrieve")
     graph.add_edge("retrieve", "generate")
     graph.add_edge("generate", "validate")
     graph.add_edge("validate", END)

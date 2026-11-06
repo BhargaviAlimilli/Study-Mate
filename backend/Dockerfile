@@ -6,8 +6,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY requirements.txt .
+RUN pip install --no-cache-dir --no-compile torch --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir --no-compile -r requirements.txt
 
 COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini .
+EXPOSE 8000
 
-CMD ["rq", "worker", "--url", "redis://redis:6379/0", "default"]
+CMD ["python", "-m", "app.start"]

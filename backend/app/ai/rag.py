@@ -1,5 +1,5 @@
 """Upload indexing and chat retrieval entry points for application services."""
-from uuid import uuid4
+from uuid import uuid4, uuid5, NAMESPACE_URL
 
 from langchain_core.documents import Document
 from qdrant_client import models
@@ -24,13 +24,14 @@ def create_document_embeddings(
         )
         for doc in docs
     ]
-    ids = [str(uuid4()) for _ in scoped_docs]
+    ids = [str(uuid5(NAMESPACE_URL, f"{user_id}:{doc.metadata['document_id']}:{doc.metadata.get('chunk_index', i)}"))
+           if doc.metadata.get("document_id") else str(uuid4()) for i, doc in enumerate(scoped_docs)]
     add_documents(scoped_docs, ids)
     return ids
 
 
 def get_document_embeddings(
-    query: str, *, user_id: str, k: int = 4, document_id: str | None = None
+    query: str, *, user_id: str, k: int = 4, document_id: str | None = None, document_ids: list[str] | None = None
 ) -> list[Document]:
     """Return relevant stored chunks for chat, not the raw embedding vectors."""
     if not query.strip():
@@ -47,6 +48,10 @@ def get_document_embeddings(
         scope.must.append(models.FieldCondition(
             key="metadata.document_id", match=models.MatchValue(value=document_id)
         ))
+    if document_ids is not None:
+        if not document_ids:
+            return []
+        scope.must.append(models.FieldCondition(key="metadata.document_id", match=models.MatchAny(any=document_ids)))
     store = get_vector_store()
     try:
         return store.similarity_search(query=query.strip(), k=k, filter=scope)

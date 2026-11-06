@@ -11,19 +11,19 @@ from app.ai.memory import owned_conversation
 from app.models.conversation import Conversation, Message
 from app.models.user import User
 from app.schemas.chat import ChatRequest, ChatResponse, ConversationResponse, MessageResponse
-from app.services.chat_service import continue_conversation, resume_conversation
+from app.services.chat_service import continue_conversation, resume_conversation, get_run_evidence
 
 router = APIRouter(tags=["Chat"])
 CurrentUser = Annotated[User, Depends(get_current_user)]
 Database = Annotated[Session, Depends(get_db)]
 
 
-@router.post("/query", response_model=ChatResponse)
+@router.post("/query", response_model=ChatResponse, response_model_exclude_none=True)
 async def query(data: ChatRequest, user: CurrentUser, db: Database) -> ChatResponse:
-    return await continue_conversation(data.query, user.id, data.conversation_id, db, data.request_id)
+    return await continue_conversation(data.query, user.id, data.conversation_id, db, data.request_id, data.action, data.document_id)
 
 
-@router.post("/chat-runs/{request_id}/resume", response_model=ChatResponse)
+@router.post("/chat-runs/{request_id}/resume", response_model=ChatResponse, response_model_exclude_none=True)
 async def resume(request_id: UUID, user: CurrentUser, db: Database) -> ChatResponse:
     return await resume_conversation(request_id, user.id, db)
 
@@ -45,3 +45,8 @@ def messages(conversation_id: UUID, user: CurrentUser, db: Database,
     owned_conversation(db, conversation_id, user.id)
     return list(db.scalars(select(Message).where(Message.conversation_id == conversation_id)
                           .order_by(Message.sequence).limit(limit).offset(offset)))
+
+
+@router.get("/chat-runs/{request_id}/evidence")
+def evidence(request_id: UUID, user: CurrentUser, db: Database):
+    return get_run_evidence(request_id, user.id, db)

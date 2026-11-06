@@ -32,7 +32,7 @@ def collect_passages(data: QuizRequest, user_id: UUID, db: Session) -> list[dict
     db.commit()  # Release the read connection before embeddings and model work.
     if not ready:
         raise HTTPException(status_code=422, detail="Upload a document before generating a quiz.")
-    kwargs = {"user_id": str(user_id), "k": 12}
+    kwargs = {"user_id": str(user_id), "k": 12, "document_ids": list(ready)}
     if data.document_id is not None:
         kwargs["document_id"] = str(data.document_id)
     try:
@@ -62,11 +62,11 @@ def collect_passages(data: QuizRequest, user_id: UUID, db: Session) -> list[dict
     return passages
 
 
-def persist_quiz(data: QuizRequest, user_id: UUID, generated: GeneratedQuiz, passages: list[dict], db: Session) -> QuizResponse:
+def persist_quiz(data: QuizRequest, user_id: UUID, generated: GeneratedQuiz, passages: list[dict], db: Session, quiz_id: UUID | None = None) -> QuizResponse:
     sources = {p["citation_id"]: p for p in passages}
     if any(citation not in sources for question in generated.questions for citation in question.citation_ids):
         raise HTTPException(status_code=502, detail="The generated quiz contained invalid evidence. Please try again.")
-    quiz = Quiz(user_id=user_id, document_id=data.document_id, topic=data.topic, question_count=5)
+    quiz = Quiz(**({"id": quiz_id} if quiz_id else {}), user_id=user_id, document_id=data.document_id, topic=data.topic, question_count=5)
     quiz.questions = [QuizQuestion(
         position=position, question=question.question, options=question.options,
         correct_index=question.correct_index, explanation=question.explanation, topic=question.topic,
@@ -83,10 +83,16 @@ def persist_quiz(data: QuizRequest, user_id: UUID, generated: GeneratedQuiz, pas
         raise HTTPException(status_code=503, detail="The quiz could not be saved.") from exc
 
 
-async def create_quiz(data: QuizRequest, user_id: UUID, db: Session) -> QuizResponse:
+async def create_quiz(data: QuizRequest, user_id: UUID, db: Session, quiz_id: UUID | None = None) -> QuizResponse:
+    if quiz_id is not None:
+        existing = await run_in_threadpool(db.scalar, select(Quiz).where(Quiz.id == quiz_id, Quiz.user_id == user_id))
+        if existing is not None:
+            return QuizResponse.model_validate(existing)
+    from app.services.progress_service import get_preferences
+    preferences = await run_in_threadpool(get_preferences, user_id, db)
     passages = await run_in_threadpool(collect_passages, data, user_id, db)
     try:
-        generated = GeneratedQuiz.model_validate(await asyncio.wait_for(generate_quiz(data.topic, passages), timeout=90))
+        generated = GeneratedQuiz.model_validate(await asyncio.wait_for(generate_quiz(data.topic, passages, provider=preferences.model_provider), timeout=90))
     except TimeoutError as exc:
         raise HTTPException(status_code=504, detail="Quiz generation timed out. Please try again.") from exc
     except Exception as exc:
@@ -94,7 +100,7 @@ async def create_quiz(data: QuizRequest, user_id: UUID, db: Session) -> QuizResp
         raise HTTPException(status_code=502, detail="A valid quiz could not be generated. Please try again.") from exc
     if generated.status == "insufficient_context":
         raise HTTPException(status_code=422, detail="Your notes do not provide enough retrieved material for five questions on this topic.")
-    return await run_in_threadpool(persist_quiz, data, user_id, generated, passages, db)
+    return await run_in_threadpool(persist_quiz, data, user_id, generated, passages, db, quiz_id)
 
 
 def get_owned_quiz(quiz_id: UUID, user_id: UUID, db: Session) -> Quiz:
@@ -138,6 +144,9 @@ def submit_quiz(quiz_id: UUID, data: QuizSubmission, user_id: UUID, db: Session)
     ) for question in quiz.questions]
     try:
         db.add(attempt)
+        db.flush()
+        from app.services.progress_service import sync_attempt_revisions
+        sync_attempt_revisions(attempt, db)
         db.commit()
         db.refresh(attempt)
         return build_attempt_response(attempt), True

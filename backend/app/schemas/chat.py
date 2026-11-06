@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
+from app.schemas.quiz import QuizResponse, ReviewSource
 
 
 class ChatRequest(BaseModel):
@@ -10,6 +11,8 @@ class ChatRequest(BaseModel):
     query: str = Field(min_length=1, max_length=4000)
     conversation_id: UUID | None = None
     request_id: UUID = Field(default_factory=uuid4)
+    action: Literal["auto", "answer", "summarize", "quiz"] = "auto"
+    document_id: UUID | None = None
 
 
 class TutorAnswer(BaseModel):
@@ -20,10 +23,11 @@ class TutorAnswer(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    status: Literal["answered", "out_of_scope", "insufficient_context", "quiz_unavailable"]
+    status: Literal["answered", "out_of_scope", "insufficient_context", "quiz_unavailable", "quiz_ready"]
     answer: str
     conversation_id: UUID | None = None
     request_id: UUID | None = None
+    quiz: QuizResponse | None = None
 
 
 class ConversationResponse(BaseModel):

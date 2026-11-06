@@ -34,3 +34,7 @@ PyJWT
 pwdlib[argon2]
 pytest
 httpx
+
+# Image validation and read-only MCP tools
+Pillow
+mcp>=2,<3
