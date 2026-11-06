@@ -5,7 +5,7 @@ export function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="brand">
       <span className="brand-mark">
-        <BookOpen size={21} strokeWidth={1.8} />
+        <BookOpen size={22.05} strokeWidth={1.8} />
       </span>
       {!compact && (
         <span>
@@ -19,7 +19,7 @@ export function Brand({ compact = false }: { compact?: boolean }) {
 export function Spinner({ label = 'Loading…' }: { label?: string }) {
   return (
     <div className="loading" role="status">
-      <LoaderCircle className="spin" size={19} />
+      <LoaderCircle className="spin" size={19.95} />
       <span>{label}</span>
     </div>
   )
@@ -28,7 +28,7 @@ export function ErrorNotice({ error, retry }: { error: unknown; retry?: () => vo
   if (!error) return null
   return (
     <div className="error-notice" role="alert">
-      <AlertCircle size={18} />
+      <AlertCircle size={18.9} />
       <span>{error instanceof Error ? error.message : String(error)}</span>
       {retry && <button onClick={retry}>Try again</button>}
     </div>
@@ -121,7 +121,7 @@ export function Dialog({
             <h2>{title}</h2>
           </div>
           <button className="icon-btn" onClick={onClose} aria-label="Close dialog">
-            <X size={20} />
+            <X size={21} />
           </button>
         </div>
         {children}
@@ -133,7 +133,7 @@ export function TextLink({ children, onClick }: { children: ReactNode; onClick: 
   return (
     <button className="text-link" onClick={onClick}>
       {children}
-      <ArrowRight size={14} />
+      <ArrowRight size={14.7} />
     </button>
   )
 }

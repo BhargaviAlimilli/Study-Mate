@@ -102,14 +102,14 @@ export function Revisions({
             <p>Your missed quiz topics, turned into a manageable revision plan.</p>
           </div>
           <button className="btn secondary" disabled={!!busy} onClick={() => void sync()}>
-            <RotateCcw size={15} className={busy === 'sync' ? 'spin' : ''} />
+            <RotateCcw size={15.75} className={busy === 'sync' ? 'spin' : ''} />
             Sync past attempts
           </button>
         </div>
         {recommendations.data?.recommendations[0] && (
           <div className="recommendation">
             <span className="round-icon">
-              <Compass size={24} />
+              <Compass size={25.2} />
             </span>
             <div>
               <span className="eyebrow">A GOOD PLACE TO START</span>
@@ -121,7 +121,7 @@ export function Revisions({
               disabled={!!busy}
               onClick={() => void practice(recommendations.data!.recommendations[0].revision)}
             >
-              Practice this <ArrowRight size={15} />
+              Practice this <ArrowRight size={15.75} />
             </button>
           </div>
         )}
@@ -152,7 +152,7 @@ export function Revisions({
           <ErrorNotice error={revisions.error} retry={() => void revisions.refetch()} />
         ) : !shown.length ? (
           <EmptyState
-            icon={<BookCheck size={28} />}
+            icon={<BookCheck size={29.4} />}
             title={
               filter === 'reviewed'
                 ? 'A fresh page for revision.'
@@ -169,7 +169,11 @@ export function Revisions({
               <article className="revision-card" key={revision.id}>
                 <div className="revision-title">
                   <span className={`revision-marker ${revision.status}`}>
-                    {revision.status === 'reviewed' ? <Check size={19} /> : <Target size={19} />}
+                    {revision.status === 'reviewed' ? (
+                      <Check size={19.95} />
+                    ) : (
+                      <Target size={19.95} />
+                    )}
                   </span>
                   <div>
                     <h3>{revision.topic}</h3>
@@ -190,7 +194,11 @@ export function Revisions({
                     disabled={!!busy}
                     onClick={() => void update(revision)}
                   >
-                    {revision.status === 'pending' ? <Check size={15} /> : <RotateCcw size={15} />}
+                    {revision.status === 'pending' ? (
+                      <Check size={15.75} />
+                    ) : (
+                      <RotateCcw size={15.75} />
+                    )}
                     {revision.status === 'pending' ? 'Mark as reviewed' : 'Move back to revisit'}
                   </button>
                   <button
@@ -198,7 +206,7 @@ export function Revisions({
                     disabled={!!busy}
                     onClick={() => void practice(revision)}
                   >
-                    <ListChecks size={15} />
+                    <ListChecks size={15.75} />
                     {busy === revision.id ? 'Working…' : 'Practice again'}
                   </button>
                 </div>
@@ -258,7 +266,7 @@ export function Progress({
             <p>A clear view of your practice, and a little direction for what’s next.</p>
           </div>
           <span className="page-illustration">
-            <TrendingUp size={46} strokeWidth={1.2} />
+            <TrendingUp size={48.3} strokeWidth={1.2} />
           </span>
         </div>
         {report.isPending ? (
@@ -316,11 +324,11 @@ export function Progress({
               <div className="section-heading">
                 <h2>Where you’re growing</h2>
                 <button className="text-link" onClick={onRevision}>
-                  Your revision plan <ArrowRight size={14} />
+                  Your revision plan <ArrowRight size={14.7} />
                 </button>
               </div>
               {!data.topics.length ? (
-                <EmptyState icon={<TrendingUp size={28} />} title="Your story is just beginning.">
+                <EmptyState icon={<TrendingUp size={29.4} />} title="Your story is just beginning.">
                   Complete a quiz to see topic feedback and practice trends. Topics you haven’t
                   tested remain unassessed.
                 </EmptyState>

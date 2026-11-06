@@ -155,7 +155,7 @@ function Workspace({
               aria-label="Open navigation"
               onClick={() => setMobileOpen(true)}
             >
-              <Menu size={20} />
+              <Menu size={21} />
             </button>
             <span className="breadcrumb">
               My learning space<span>/</span>
@@ -165,7 +165,7 @@ function Workspace({
           </div>
           <div className="header-actions">
             <button className="btn secondary small" onClick={() => setUpload(true)}>
-              <Plus size={15} />
+              <Plus size={15.75} />
               <span>Add notes</span>
             </button>
           </div>
@@ -177,7 +177,7 @@ function Workspace({
         )}
         <div className="section-subheader">
           <div>
-            <BookOpen size={14} />
+            <BookOpen size={14.7} />
             <span>
               {view === 'study'
                 ? 'Your notes. A fresh perspective.'
@@ -189,9 +189,9 @@ function Workspace({
             </span>
           </div>
           <button onClick={() => setUpload(true)}>
-            <Upload size={12} />
+            <Upload size={12.6} />
             Your library, growing
-            <ArrowUpRight size={12} />
+            <ArrowUpRight size={12.6} />
           </button>
         </div>
         {/* Keep the chat mounted when switching views, so in-flight answers and live evidence remain available. */}

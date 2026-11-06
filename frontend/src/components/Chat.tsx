@@ -268,7 +268,7 @@ export default function Chat({
         ) : !messages.length ? (
           <div className="study-welcome">
             <div className="welcome-symbol">
-              <Sparkles size={29} strokeWidth={1.5} />
+              <Sparkles size={30.45} strokeWidth={1.5} />
               <span />
             </div>
             <span className="eyebrow">A LITTLE CURIOSITY GOES A LONG WAY</span>
@@ -308,20 +308,20 @@ export default function Chat({
                     input.current?.focus()
                   }}
                 >
-                  <item.icon size={21} strokeWidth={1.5} />
+                  <item.icon size={22.05} strokeWidth={1.5} />
                   <strong>{item.title}</strong>
                   <span>{item.text}</span>
-                  <ArrowUpRight size={16} />
+                  <ArrowUpRight size={16.8} />
                 </button>
               ))}
             </div>
             {!docs.isPending && !ready.length && (
               <button className="welcome-upload" onClick={onUpload}>
-                <FileText size={17} />
+                <FileText size={17.85} />
                 <span>
                   Start with your study material.<b> Upload your first PDF</b>
                 </span>
-                <ArrowUpRight size={16} />
+                <ArrowUpRight size={16.8} />
               </button>
             )}
             <div className="learning-loop">
@@ -358,7 +358,7 @@ export default function Chat({
             {busy && (
               <div className="thinking">
                 <span className="avatar assistant">
-                  <Sparkles size={17} />
+                  <Sparkles size={17.85} />
                 </span>
                 <span className="thinking-dots">
                   <i />
@@ -376,13 +376,13 @@ export default function Chat({
         <ErrorNotice error={error} />
         {resumeId && (
           <button className="text-link" disabled={busy} onClick={() => void resume()}>
-            Continue the interrupted answer <ArrowUpRight size={14} />
+            Continue the interrupted answer <ArrowUpRight size={14.7} />
           </button>
         )}
         <form className="composer" onSubmit={(e) => void send(e)}>
           {attachment && (
             <div className="attachment-chip">
-              <ImagePlus size={14} />
+              <ImagePlus size={14.7} />
               {attachment.name}
               <button
                 type="button"
@@ -390,7 +390,7 @@ export default function Chat({
                 aria-label="Remove image"
                 onClick={() => setAttachment(null)}
               >
-                <X size={14} />
+                <X size={14.7} />
               </button>
             </div>
           )}
@@ -419,7 +419,7 @@ export default function Chat({
                 aria-label="Attach PDF"
                 onClick={onUpload}
               >
-                <Paperclip size={18} />
+                <Paperclip size={18.9} />
               </button>
               <button
                 type="button"
@@ -433,7 +433,7 @@ export default function Chat({
                 aria-label="Attach study image"
                 onClick={() => imageInput.current?.click()}
               >
-                <ImagePlus size={18} />
+                <ImagePlus size={18.9} />
               </button>
               <button
                 type="button"
@@ -447,7 +447,7 @@ export default function Chat({
                 aria-label="Upload voice question"
                 onClick={() => voiceInput.current?.click()}
               >
-                <Mic size={18} />
+                <Mic size={18.9} />
               </button>
               <span className="toolbar-divider" />
               <select
@@ -471,7 +471,7 @@ export default function Chat({
               }
               aria-label="Send question"
             >
-              <ArrowUp size={19} />
+              <ArrowUp size={19.95} />
             </button>
           </div>
         </form>
@@ -570,7 +570,7 @@ function Message({
   return (
     <article className={`message ${message.role}`}>
       <span className={`avatar ${message.role === 'user' ? 'user' : 'assistant'}`}>
-        {message.role === 'user' ? user.name[0]?.toUpperCase() : <Sparkles size={17} />}
+        {message.role === 'user' ? user.name[0]?.toUpperCase() : <Sparkles size={17.85} />}
       </span>
       <div className="message-content">
         <div className="message-heading">
@@ -583,19 +583,19 @@ function Message({
         {message.grounding && <p className="field-hint">{message.grounding}</p>}
         {message.quiz && (
           <button className="quiz-chat-card" onClick={() => onQuiz(message.quiz!)}>
-            <ListChecks size={24} />
+            <ListChecks size={25.2} />
             <span>
               <strong>{message.quiz.topic}</strong>
               <small>{message.quiz.question_count} questions · Ready when you are</small>
             </span>
-            <ArrowUpRight size={19} />
+            <ArrowUpRight size={19.95} />
           </button>
         )}
         {message.role === 'assistant' && (
           <div className="message-actions">
             {message.request_id && (
               <button onClick={() => onEvidence(message.request_id!)}>
-                <FileText size={13} />
+                <FileText size={13.65} />
                 View supporting pages
               </button>
             )}
@@ -611,12 +611,12 @@ function Message({
                   .catch(setError)
               }}
             >
-              {copied ? <Check size={13} /> : <Copy size={13} />}
+              {copied ? <Check size={13.65} /> : <Copy size={13.65} />}
               {copied ? 'Copied' : 'Copy'}
             </button>
             {voiceEnabled && message.content.length <= 3000 && (
               <button onClick={() => void speak()}>
-                <Volume2 size={13} />
+                <Volume2 size={13.65} />
                 {speaking ? 'Stop audio' : 'Read aloud'}
                 <span className="sr-only"> · AI-generated voice</span>
               </button>

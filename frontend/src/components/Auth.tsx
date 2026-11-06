@@ -74,7 +74,7 @@ export default function Auth({ onLogin }: { onLogin: (token: Token) => void }) {
           <div className="note-art" aria-hidden="true">
             <div className="art-paper">
               <span className="art-paper-title">
-                <FileText size={17} /> YOUR COURSE NOTES
+                <FileText size={17.85} /> YOUR COURSE NOTES
               </span>
               <div className="paper-line long" />
               <div className="paper-line" />
@@ -87,7 +87,7 @@ export default function Auth({ onLogin }: { onLogin: (token: Token) => void }) {
             </div>
             <div className="art-answer">
               <span>
-                <Sparkles size={16} /> THE MOMENT IT CLICKS
+                <Sparkles size={16.8} /> THE MOMENT IT CLICKS
               </span>
               <p>“Oh, that makes sense now.”</p>
               <div className="answer-dots">
@@ -97,23 +97,23 @@ export default function Auth({ onLogin }: { onLogin: (token: Token) => void }) {
               </div>
             </div>
             <span className="art-check">
-              <Check size={22} />
+              <Check size={23.1} />
             </span>
             <span className="art-star">✳</span>
           </div>
           <div className="auth-loop">
             <span>Upload</span>
-            <ArrowRight size={13} />
+            <ArrowRight size={13.65} />
             <span>Understand</span>
-            <ArrowRight size={13} />
+            <ArrowRight size={13.65} />
             <span>Practice</span>
-            <ArrowRight size={13} />
+            <ArrowRight size={13.65} />
             <span>Grow</span>
           </div>
         </div>
         <footer>
           Built for curious minds. At your own pace.
-          <ArrowUpRight size={16} />
+          <ArrowUpRight size={16.8} />
         </footer>
       </section>
       <section className="auth-form-area">
@@ -122,7 +122,7 @@ export default function Auth({ onLogin }: { onLogin: (token: Token) => void }) {
         </div>
         <div className="auth-form-wrap">
           <span className="section-kicker">
-            <Layers3 size={16} /> YOUR PERSONAL LEARNING SPACE
+            <Layers3 size={16.8} /> YOUR PERSONAL LEARNING SPACE
           </span>
           <h2>{mode === 'login' ? 'Welcome back.' : 'Make room for learning.'}</h2>
           <p className="muted">
@@ -196,13 +196,13 @@ export default function Auth({ onLogin }: { onLogin: (token: Token) => void }) {
                   aria-label={visible ? 'Hide password' : 'Show password'}
                   onClick={() => setVisible(!visible)}
                 >
-                  {visible ? <EyeOff size={17} /> : <Eye size={17} />}
+                  {visible ? <EyeOff size={17.85} /> : <Eye size={17.85} />}
                 </button>
               </div>
             </label>
             {notice && (
               <p className="success-notice" role="status">
-                <Check size={17} />
+                <Check size={17.85} />
                 {notice}
               </p>
             )}
@@ -213,12 +213,12 @@ export default function Auth({ onLogin }: { onLogin: (token: Token) => void }) {
                 : mode === 'login'
                   ? 'Open my study space'
                   : 'Create my account'}
-              <ArrowRight size={18} />
+              <ArrowRight size={18.9} />
             </button>
           </form>
           <div className="auth-private">
             <span className="tiny-shield">
-              <Check size={12} />
+              <Check size={12.6} />
             </span>
             Your library is private to your account.
           </div>

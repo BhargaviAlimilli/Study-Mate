@@ -20,10 +20,10 @@ export function SourceLinks({
           key={`${source.document_id}-${source.page}-${index}`}
           onClick={() => onOpen(source)}
         >
-          <FileText size={13} />
+          <FileText size={13.65} />
           <span>{source.filename}</span>
           <b>p. {source.page}</b>
-          <ArrowUpRight size={12} />
+          <ArrowUpRight size={12.6} />
         </button>
       ))}
     </div>
@@ -63,14 +63,14 @@ export default function Evidence({
           <h2>{page ? 'Your document' : 'Supporting notes'}</h2>
         </div>
         <button className="icon-btn" onClick={onClose} aria-label="Close document viewer">
-          <X size={19} />
+          <X size={19.95} />
         </button>
       </div>
       {page ? (
         <>
           {'requestId' in selection && (
             <button className="back-link" onClick={() => setPage(null)}>
-              <ChevronLeft size={14} />
+              <ChevronLeft size={14.7} />
               All supporting pages
             </button>
           )}
@@ -91,13 +91,13 @@ export default function Evidence({
                 onClick={() => setPage(source)}
               >
                 <span className="pdf-icon">
-                  <FileText size={21} />
+                  <FileText size={22.05} />
                 </span>
                 <span>
                   <strong>{source.filename}</strong>
                   <small>Page {source.page}</small>
                 </span>
-                <ArrowUpRight size={17} />
+                <ArrowUpRight size={17.85} />
               </button>
             ))
           ) : (
@@ -144,7 +144,7 @@ function PdfViewer({ selection, token }: { selection: PdfSelection; token: strin
   return (
     <div className="pdf-viewer">
       <div className="pdf-title">
-        <FileText size={16} />
+        <FileText size={16.8} />
         <span title={selection.filename}>{selection.filename}</span>
         {selection.page && <b>Page {selection.page}</b>}
       </div>
@@ -154,7 +154,7 @@ function PdfViewer({ selection, token }: { selection: PdfSelection; token: strin
         <>
           <div className="pdf-actions">
             <a className="btn secondary small" href={url} target="_blank" rel="noreferrer">
-              <ArrowUpRight size={14} />
+              <ArrowUpRight size={14.7} />
               Open PDF
             </a>
             <a
@@ -167,7 +167,7 @@ function PdfViewer({ selection, token }: { selection: PdfSelection; token: strin
               }
               aria-label="Download PDF"
             >
-              <Download size={16} />
+              <Download size={16.8} />
             </a>
           </div>
           <iframe

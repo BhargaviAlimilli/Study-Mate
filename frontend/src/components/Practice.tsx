@@ -72,13 +72,13 @@ export default function Practice({
                 <p>Five questions from your notes. A clearer picture of what’s next.</p>
               </div>
               <button className="btn primary" onClick={() => setGenerating(true)}>
-                <Plus size={17} />
+                <Plus size={17.85} />
                 Create a quiz
               </button>
             </div>
             <div className="info-banner">
               <span className="round-icon">
-                <ListChecks size={21} />
+                <ListChecks size={22.05} />
               </span>
               <div>
                 <strong>A checkpoint, not a final verdict.</strong>
@@ -95,11 +95,11 @@ export default function Practice({
               <ErrorNotice error={list.error} retry={() => void list.refetch()} />
             ) : !list.data?.length ? (
               <EmptyState
-                icon={<ListChecks size={28} />}
+                icon={<ListChecks size={29.4} />}
                 title="Your next aha starts here."
                 action={
                   <button className="btn primary" onClick={() => setGenerating(true)}>
-                    Create your first quiz <ArrowRight size={16} />
+                    Create your first quiz <ArrowRight size={16.8} />
                   </button>
                 }
               >
@@ -111,15 +111,15 @@ export default function Practice({
                   <button className="quiz-card" key={quiz.id} onClick={() => onSelect(quiz.id)}>
                     <div className="quiz-card-top">
                       <span className={`collection-icon tone-${index % 3}`}>
-                        <ListChecks size={22} />
+                        <ListChecks size={23.1} />
                       </span>
-                      <ArrowRight size={18} />
+                      <ArrowRight size={18.9} />
                     </div>
                     <span className="eyebrow">PRACTICE QUIZ</span>
                     <h3>{quiz.topic}</h3>
                     <div className="quiz-card-meta">
                       <span>
-                        <CircleHelp size={14} />
+                        <CircleHelp size={14.7} />
                         {quiz.question_count} questions
                       </span>
                       <span>{dateLabel(quiz.created_at)}</span>
@@ -150,7 +150,7 @@ export default function Practice({
   )
 }
 function ArrowUpIcon() {
-  return <ArrowRight size={15} className="diagonal-arrow" />
+  return <ArrowRight size={15.75} className="diagonal-arrow" />
 }
 function GenerateDialog({
   token,
@@ -239,7 +239,7 @@ function GenerateDialog({
             className="btn primary"
             disabled={busy || !topic.trim() || !docs.data?.some((d) => d.status === 'ready')}
           >
-            <ListChecks size={16} />
+            <ListChecks size={16.8} />
             Create 5 questions
           </button>
         </div>
@@ -288,7 +288,7 @@ function QuizDetail({
   return (
     <>
       <button className="back-link" onClick={onBack}>
-        <ArrowLeft size={16} />
+        <ArrowLeft size={16.8} />
         All practice quizzes
       </button>
       {quiz.isPending ? (
@@ -316,7 +316,7 @@ function QuizDetail({
                     setRound((r) => r + 1)
                   }}
                 >
-                  <RotateCcw size={15} />
+                  <RotateCcw size={15.75} />
                   Try again
                 </button>
               )}
@@ -337,7 +337,7 @@ function QuizDetail({
             )}
             <div className="section-heading attempts-heading">
               <h2>Previous attempts</h2>
-              <Clock3 size={17} />
+              <Clock3 size={17.85} />
             </div>
             {attempts.isPending ? (
               <Spinner />
@@ -354,7 +354,7 @@ function QuizDetail({
                     disabled={loadingAttempt}
                   >
                     <span className="attempt-symbol">
-                      <ListChecks size={17} />
+                      <ListChecks size={17.85} />
                     </span>
                     <span>
                       <strong>Attempt {attempts.data.length - index}</strong>
@@ -364,7 +364,7 @@ function QuizDetail({
                       {attempt.score}/{attempt.total}
                     </b>
                     <span>{Math.round(attempt.percentage)}%</span>
-                    <ArrowRight size={16} />
+                    <ArrowRight size={16.8} />
                   </button>
                 ))}
               </div>
@@ -493,7 +493,7 @@ export function QuizForm({
                 />
                 <span className="option-letter">{'ABCD'[i]}</span>
                 <span>{option}</span>
-                {draft.answers[q.id] === i && <Check size={17} />}
+                {draft.answers[q.id] === i && <Check size={17.85} />}
               </label>
             ))}
           </div>
@@ -502,12 +502,12 @@ export function QuizForm({
       <ErrorNotice error={error} />
       <div className="submit-bar">
         <span>
-          <FileText size={16} />
+          <FileText size={16.8} />
           Feedback includes pages to revisit.
         </span>
         <button className="btn primary" disabled={busy || count !== quiz.questions.length}>
           {busy ? 'Checking your answers…' : 'Submit & see feedback'}
-          <ArrowRight size={16} />
+          <ArrowRight size={16.8} />
         </button>
       </div>
     </form>
@@ -551,7 +551,7 @@ function Result({
       <div className="feedback-grid">
         <div className="feedback-block strengths">
           <span className="feedback-label">
-            <CheckCircle2 size={17} />
+            <CheckCircle2 size={17.85} />
             What’s going well
           </span>
           {result.feedback.strengths.length ? (
@@ -568,7 +568,7 @@ function Result({
         </div>
         <div className="feedback-block review">
           <span className="feedback-label">
-            <Target size={17} />
+            <Target size={17.85} />
             Where to focus next
           </span>
           {result.feedback.needs_review.length ? (
@@ -593,7 +593,7 @@ function Result({
             ))}
           </ul>
           <button className="text-link" onClick={onRevision}>
-            Open your revision plan <ArrowRight size={15} />
+            Open your revision plan <ArrowRight size={15.75} />
           </button>
         </div>
       )}
@@ -607,7 +607,7 @@ function Result({
           key={answer.question_id}
         >
           <div className="review-question-heading">
-            <span>{answer.is_correct ? <CheckCircle2 size={19} /> : <X size={19} />}</span>
+            <span>{answer.is_correct ? <CheckCircle2 size={19.95} /> : <X size={19.95} />}</span>
             <div>
               <span className="eyebrow">
                 QUESTION {index + 1} · {answer.is_correct ? 'CORRECT' : 'KEEP PRACTICING'}
@@ -625,7 +625,7 @@ function Result({
                 {option}
                 {i === answer.correct_index ? (
                   <b>
-                    <Check size={13} />
+                    <Check size={13.65} />
                     Correct answer
                   </b>
                 ) : i === answer.selected_index ? (
