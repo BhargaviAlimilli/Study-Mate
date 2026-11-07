@@ -57,7 +57,9 @@ No demo recording is fabricated from mocked test screens.
 - Upload an educational image, ask about it, refresh, and reopen the image and
   image-grounded explanation. Reject corrupt/oversized images. Old image turns
   from before persistence cannot be retroactively recovered.
-- Allow microphone access, dictate, review, send, and play the answer. Deny
+- Allow microphone access, dictate, pause for 1.8 seconds, and play the answer.
+  Confirm exactly one automatic submission, countdown reset on resumed speech,
+  no empty submission, and cancellation on Stop or navigation. Deny
   permission once and confirm a clear error. Test stop and navigation cleanup.
 - From `backend/`, explicitly run
   `python -m evaluation.verify_providers --provider anthropic` (real paid calls).

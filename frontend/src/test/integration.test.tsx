@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
@@ -18,6 +18,71 @@ function mount(node: ReactNode) {
   return render(<QueryClientProvider client={client}>{node}</QueryClientProvider>)
 }
 describe('connected learning flows', () => {
+  it('posts a dictated question after the silence timer without clicking Send', async () => {
+    class BrowserRecognition {
+      static current: BrowserRecognition
+      constructor() {
+        BrowserRecognition.current = this
+      }
+      lang = ''
+      continuous = false
+      interimResults = false
+      onspeechstart: (() => void) | null = null
+      onspeechend: (() => void) | null = null
+      onresult: ((event: { results: { 0: { transcript: string } }[] }) => void) | null = null
+      onerror: ((event: { error: string }) => void) | null = null
+      onend: (() => void) | null = null
+      start() {}
+      stop() {
+        this.onend?.()
+      }
+      abort() {}
+    }
+    vi.stubGlobal('SpeechRecognition', BrowserRecognition)
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path.includes('/documents'))
+        return response([{ id: 'doc-1', filename: 'Notes.pdf', status: 'ready' }])
+      if (path.endsWith('/models')) return response({ providers: [], voice_configured: false })
+      if (path.endsWith('/query'))
+        return response({
+          status: 'answered',
+          answer: 'A promise represents a future result.',
+          conversation_id: 'conv-1',
+          request_id: 'run-1',
+        })
+      return response([])
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    mount(
+      <Chat
+        token="token"
+        user={user}
+        conversationId={null}
+        newSession={0}
+        onConversation={vi.fn()}
+        onUpload={vi.fn()}
+        onEvidence={vi.fn()}
+        onQuiz={vi.fn()}
+      />,
+    )
+    await screen.findByRole('option', { name: 'Notes.pdf' })
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: 'Dictate your question' }))
+    act(() => {
+      BrowserRecognition.current.onresult?.({
+        results: [{ 0: { transcript: 'Explain promises' } }],
+      })
+      BrowserRecognition.current.onspeechend?.()
+      vi.advanceTimersByTime(1799)
+    })
+    expect(fetchMock.mock.calls.filter(([path]) => path.endsWith('/query'))).toHaveLength(0)
+    await act(async () => vi.advanceTimersByTimeAsync(1))
+    const calls = fetchMock.mock.calls.filter(([path]) => path.endsWith('/query'))
+    expect(calls).toHaveLength(1)
+    const options = (calls[0] as unknown as [string, RequestInit])[1]
+    expect(JSON.parse(options.body as string).query).toBe('Explain promises')
+    expect(screen.getByText('A promise represents a future result.')).toBeInTheDocument()
+  })
   it('restores durable source excerpts and quiz cards when a saved conversation is opened', async () => {
     const source = {
       document_id: 'doc-1',

@@ -69,7 +69,9 @@ converted into PDF evidence or searchable document chunks.
 
 ## Voice
 
-Browser speech recognition fills a reviewable text draft. Sending enters the same
+Browser speech recognition fills the composer and submits after 1.8 seconds of
+silence. Speech activity resets the timer; stop/navigation cancels it. Typed
+questions still require Send. Voice submissions enter the same
 authenticated chat flow; browser speech synthesis reads answers aloud. No OpenAI
 key is needed for this path. Recognition support varies and may involve the
 browser provider's servers. Optional server audio-file transcription/speech

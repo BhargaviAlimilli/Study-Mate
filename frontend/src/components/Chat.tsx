@@ -54,7 +54,8 @@ export default function Chat({
     end = useRef<HTMLDivElement>(null),
     input = useRef<HTMLTextAreaElement>(null),
     skipLoad = useRef<string | null>(null),
-    active = useRef<AbortController | null>(null)
+    active = useRef<AbortController | null>(null),
+    sending = useRef(false)
   const [messages, setMessages] = useState<ChatMessage[]>([]),
     [query, setQuery] = useState(''),
     [docId, setDocId] = useState(''),
@@ -84,6 +85,7 @@ export default function Chat({
       return
     }
     active.current?.abort()
+    sending.current = false
     setBusy(false)
     setError(null)
     setResumeId(null)
@@ -148,11 +150,25 @@ export default function Chat({
     void client.invalidateQueries({ queryKey: ['conversations', user.id] })
     void client.invalidateQueries({ queryKey: ['quizzes', user.id] })
   }
-  async function send(event?: FormEvent, voice?: File) {
+  async function send(event?: FormEvent, voice?: File, spokenText?: string) {
     event?.preventDefault()
-    if (busy || dictating || (!query.trim() && !voice && !attachment)) return
-    const text = query.trim(),
-      file = attachment,
+    const text = (spokenText ?? query).trim()
+    if (
+      sending.current ||
+      busy ||
+      loading ||
+      !isActive ||
+      (dictating && spokenText === undefined) ||
+      (!text && !voice && !attachment)
+    )
+      return
+    if (!attachment && !voice && !ready.length) {
+      setQuery(text)
+      setError(new Error('Upload a PDF and wait until it is ready before asking about your notes.'))
+      return
+    }
+    sending.current = true
+    const file = attachment,
       controller = new AbortController()
     active.current = controller
     setError(null)
@@ -225,6 +241,7 @@ export default function Chat({
         if (!voice && !file) setQuery(text)
       }
     } finally {
+      if (active.current === controller) sending.current = false
       if (!controller.signal.aborted) setBusy(false)
     }
   }
@@ -380,8 +397,8 @@ export default function Chat({
         )}
         {dictating && (
           <p className="voice-hint" role="status">
-            Listening? Speak your question, then stop and review the text before sending. Your
-            browser provider may process the audio.
+            Listening… Your question sends automatically after 1.8 seconds of silence. Stop
+            dictation to cancel automatic sending. Your browser provider may process the audio.
           </p>
         )}
         <form className="composer" onSubmit={(e) => void send(e)}>
@@ -447,6 +464,7 @@ export default function Chat({
                 onText={setQuery}
                 onError={setError}
                 onListening={setDictating}
+                onSubmit={(transcript) => void send(undefined, undefined, transcript)}
               />
               {models.data?.voice_configured && (
                 <button

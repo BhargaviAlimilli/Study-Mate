@@ -7,6 +7,8 @@ interface Recognition {
   continuous: boolean
   interimResults: boolean
   onresult: ((event: { results: ArrayLike<{ 0: { transcript: string } }> }) => void) | null
+  onspeechstart: (() => void) | null
+  onspeechend: (() => void) | null
   onerror: ((event: { error: string }) => void) | null
   onend: (() => void) | null
   start(): void
@@ -22,62 +24,151 @@ function recognitionType() {
   return browser.SpeechRecognition || browser.webkitSpeechRecognition
 }
 
+const SILENCE_MS = 1800
+
 export function Dictation({
   disabled,
   text,
   onText,
   onError,
   onListening,
+  onSubmit,
 }: {
   disabled: boolean
   text: string
   onText: (text: string) => void
   onError: (error: Error | null) => void
   onListening: (value: boolean) => void
+  onSubmit?: (text: string) => void
 }) {
   const [listening, setListening] = useState(false)
   const recognition = useRef<Recognition | null>(null)
-  const callback = useRef(onListening)
-  callback.current = onListening
+  const silence = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const session = useRef({
+    active: false,
+    finishing: false,
+    speaking: false,
+    prefix: '',
+    transcript: '',
+  })
+  const callbacks = useRef({ disabled, onText, onError, onListening, onSubmit })
+  callbacks.current = { disabled, onText, onError, onListening, onSubmit }
   const supported = !!recognitionType()
-  useEffect(() => {
-    if (disabled) {
-      recognition.current?.abort()
-      setListening(false)
-      callback.current(false)
+  function clearTimers() {
+    if (silence.current !== null) clearTimeout(silence.current)
+    if (settle.current !== null) clearTimeout(settle.current)
+    silence.current = null
+    settle.current = null
+  }
+  function detach() {
+    const instance = recognition.current
+    if (instance) {
+      instance.onresult = null
+      instance.onerror = null
+      instance.onend = null
+      instance.onspeechstart = null
+      instance.onspeechend = null
     }
+    return instance
+  }
+  function cancel() {
+    session.current.active = false
+    clearTimers()
+    detach()?.abort()
+    recognition.current = null
+    setListening(false)
+    callbacks.current.onListening(false)
+  }
+  function finish() {
+    const current = session.current
+    if (!current.active || callbacks.current.disabled) return
+    const value = [current.prefix, current.transcript]
+      .filter(Boolean)
+      .join(' ')
+      .slice(0, 4000)
+      .trim()
+    const hasSpeech = !!current.transcript.trim()
+    cancel()
+    if (hasSpeech && value) callbacks.current.onSubmit?.(value)
+  }
+  function waitForSilence() {
+    if (silence.current !== null) clearTimeout(silence.current)
+    if (!session.current.transcript.trim() || session.current.finishing) return
+    silence.current = setTimeout(() => {
+      silence.current = null
+      if (!session.current.active || callbacks.current.disabled) return
+      session.current.finishing = true
+      // Ask the recognizer for its last result before sending; cap the flush wait.
+      settle.current = setTimeout(finish, 500)
+      try {
+        recognition.current?.stop()
+      } catch {
+        finish()
+      }
+    }, SILENCE_MS)
+  }
+  useEffect(() => {
+    if (disabled) cancel()
   }, [disabled])
   useEffect(
     () => () => {
-      if (recognition.current) {
-        recognition.current.onresult = null
-        recognition.current.onerror = null
-        recognition.current.onend = null
-        recognition.current.abort()
-      }
-      callback.current(false)
+      session.current.active = false
+      clearTimers()
+      detach()?.abort()
+      callbacks.current.onListening(false)
     },
     [],
   )
   function toggle() {
-    if (listening) {
-      recognition.current?.stop()
+    if (session.current.active) {
+      cancel()
       return
     }
     const Constructor = recognitionType()
     if (!Constructor) return
-    onError(null)
+    callbacks.current.onError(null)
+    session.current = {
+      active: true,
+      finishing: false,
+      speaking: false,
+      prefix: text.trim(),
+      transcript: '',
+    }
     const instance = new Constructor()
     recognition.current = instance
     instance.lang = navigator.language || 'en-US'
-    instance.continuous = false
-    instance.interimResults = false
+    instance.continuous = true
+    instance.interimResults = true
+    instance.onspeechstart = () => {
+      if (!session.current.active || session.current.finishing) return
+      session.current.speaking = true
+      if (silence.current !== null) clearTimeout(silence.current)
+      silence.current = null
+    }
+    instance.onspeechend = () => {
+      if (!session.current.active || session.current.finishing) return
+      session.current.speaking = false
+      waitForSilence()
+    }
     instance.onresult = (event) => {
+      if (!session.current.active || callbacks.current.disabled) return
       const transcript = Array.from(event.results)
         .map((result) => result[0].transcript)
         .join(' ')
         .trim()
-      if (transcript) onText([text.trim(), transcript].filter(Boolean).join(' ').slice(0, 4000))
+      const changed = transcript !== session.current.transcript
+      session.current.transcript = transcript
+      callbacks.current.onText(
+        [session.current.prefix, session.current.transcript]
+          .filter(Boolean)
+          .join(' ')
+          .slice(0, 4000),
+      )
+      // Continuous recognition may never emit speechend. Keep an inactivity
+      // deadline even while its speech-started flag remains set. Repeated
+      // identical interim results must not postpone that deadline forever.
+      if (changed && transcript) waitForSilence()
     }
     instance.onerror = (event) => {
       const messages: Record<string, string> = {
@@ -92,28 +183,36 @@ export function Dictation({
         'language-not-supported':
           'Your browser does not support speech recognition for this language.',
       }
+      cancel()
       if (event.error !== 'aborted')
-        onError(
+        callbacks.current.onError(
           new Error(
             messages[event.error] ||
               'Speech recognition failed. Please try again or type your question.',
           ),
         )
-      setListening(false)
-      callback.current(false)
     }
     instance.onend = () => {
-      setListening(false)
-      callback.current(false)
+      if (!session.current.active) return
+      if (session.current.finishing) {
+        finish()
+        return
+      }
+      session.current.speaking = false
+      if (!session.current.transcript.trim()) {
+        cancel()
+        return
+      }
+      // Some browsers end recognition before the requested pause; retain the timer.
+      if (silence.current === null) waitForSilence()
     }
     try {
       instance.start()
       setListening(true)
-      callback.current(true)
+      callbacks.current.onListening(true)
     } catch {
-      setListening(false)
-      callback.current(false)
-      onError(
+      cancel()
+      callbacks.current.onError(
         new Error('Could not start your microphone. Check browser permissions and try again.'),
       )
     }
@@ -128,8 +227,8 @@ export function Dictation({
       title={
         supported
           ? listening
-            ? 'Stop listening'
-            : 'Dictate using your browser. Speech may be processed by your browser provider.'
+            ? 'Stop dictation and cancel automatic sending'
+            : 'Speak your question. It sends after 1.8 seconds of silence. Your browser provider may process the audio.'
           : 'Speech recognition is unavailable in this browser. You can type your question.'
       }
       onClick={toggle}
