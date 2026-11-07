@@ -108,7 +108,12 @@ function Workspace({
     setView('practice')
   }
   function openSource(source: PdfSelection) {
-    setEvidence({ document_id: source.document_id, filename: source.filename, page: source.page })
+    setEvidence({
+      document_id: source.document_id,
+      filename: source.filename,
+      page: source.page,
+      excerpt: source.excerpt,
+    })
   }
   async function logout() {
     if (logoutBusy) return
@@ -204,7 +209,9 @@ function Workspace({
             isActive={view === 'study'}
             onConversation={setConversation}
             onUpload={() => setUpload(true)}
-            onEvidence={(requestId) => setEvidence({ requestId })}
+            onEvidence={(value) =>
+              setEvidence(Array.isArray(value) ? { sources: value } : { requestId: value })
+            }
             onQuiz={openQuiz}
           />
         </div>

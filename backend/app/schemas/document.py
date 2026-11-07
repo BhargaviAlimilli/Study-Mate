@@ -19,5 +19,5 @@ class DocumentResponse(BaseModel):
     size_bytes: int
     page_count: int
     chunks_stored: int
-    status: Literal["processing", "ready", "failed"]
+    status: Literal["queued", "processing", "ready", "failed"]
     uploaded_at: datetime

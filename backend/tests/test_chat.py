@@ -315,6 +315,23 @@ def test_quiz_action_is_saved_and_replay_safe(chat,monkeypatch):
     assert repeated.json() == result.json()
     assert generator.call_count == 1
     assert len(client.get('/quizzes').json()) == 1
+    history = client.get('/conversations/' + result.json()['conversation_id'] + '/messages').json()
+    assert history[-1]['quiz']['id'] == result.json()['quiz']['id']
+    assert history[-1]['request_id'] == request_id
+
+
+def test_saved_evidence_survives_without_workflow_checkpoint(chat, monkeypatch):
+    client = chat[0]
+    response = client.post('/query', json={'query': 'Explain mutable lists'}).json()
+    history = client.get('/conversations/' + response['conversation_id'] + '/messages').json()
+    assert history[-1]['request_id'] == response['request_id']
+    assert history[-1]['sources'][0]['excerpt'] == 'A list is mutable.'
+    def unavailable(*args, **kwargs):
+        raise RuntimeError('Checkpoint deliberately unavailable')
+    monkeypatch.setattr(chat_service, 'checkpoint_session', unavailable)
+    evidence = client.get('/chat-runs/' + response['request_id'] + '/evidence')
+    assert evidence.status_code == 200
+    assert evidence.json() == history[-1]['sources']
 
 
 @pytest.mark.parametrize('query,expected',[

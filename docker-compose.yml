@@ -2,7 +2,7 @@ name: study-mate
 
 services:
   api:
-    profiles: ["api"]
+    profiles: ["api", "web"]
     build:
       context: ./backend
     env_file: ./backend/.env
@@ -17,6 +17,8 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
+      redis:
+        condition: service_healthy
     restart: unless-stopped
   postgres:
     image: postgres:17-alpine
@@ -60,16 +62,31 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: ["rq", "worker", "--url", "redis://redis:6379/0", "default"]
+    command: ["python", "-m", "app.workers.run"]
+    env_file: ./backend/.env
     environment:
+      POSTGRES_SERVICE_HOST: postgres
       REDIS_URL: redis://redis:6379/0
       QDRANT_URL: http://qdrant:6333
     volumes:
       - ./backend/app:/app/app:ro
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
       qdrant:
+        condition: service_started
+    restart: unless-stopped
+
+  frontend:
+    profiles: ["web"]
+    build:
+      context: ./frontend
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      api:
         condition: service_started
     restart: unless-stopped
 

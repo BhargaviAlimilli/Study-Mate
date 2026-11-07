@@ -6,19 +6,25 @@ clients never choose a user ID.
 
 ## Documents
 
-- `POST /documents/upload`: multipart field `file`; text PDFs up to 10 MiB.
+- `POST /documents/upload`: multipart field `file`; text PDFs up to 10 MiB. Returns
+  202 with `status: queued` for background indexing, or 201 for an already ready duplicate.
 - `GET /documents`: paginated metadata (`limit`, `offset`).
 - `GET /documents/{id}`: document metadata.
 - `GET /documents/{id}/file`: authenticated original PDF bytes.
 - `GET /documents/{id}/file?page=7`: one PDF page; page numbers start at one.
-- `POST /documents/{id}/retry`: retry a failed or abandoned synchronous upload.
+- `POST /documents/{id}/retry`: recover failed or abandoned ingestion; active jobs are reused.
 
 Original bytes and metadata stay in PostgreSQL. Qdrant stores chunks and vectors.
 Per-user SHA-256 hashes identify duplicates even if the filename changes. A live
 upload holds a PostgreSQL session advisory lock; another upload/retry of the same
-content returns 409. If a process dies, its lock is released and retry can recover
+content returns 409 while indexing. A queued duplicate reuses its active job. If a process dies, its lock is released and retry can recover
 the same record. Retried chunks use stable IDs, and old partial vectors are
 removed first. Search accepts only ready documents belonging to the current user.
+RQ jobs carry only document/user/job IDs. Original bytes stay in PostgreSQL.
+The default job timeout is 900 seconds, with two delayed retries (10s, 30s).
+Run the worker with its scheduler. Redis enqueue failures preserve the original
+PDF in failed status so a later retry can recover it. `BACKGROUND_INGESTION=false`
+is an explicit synchronous development/test fallback, not the default.
 
 Files with identical bytes reuse the ready document and return 201 with its ID.
 Different users retain independent documents. PDFs made before persistence was
@@ -61,6 +67,14 @@ explicitly or through preferences are labelled as comparisons, not PDF claims.
 - `GET /conversations`: list saved conversations.
 - `GET /conversations/{id}`: metadata.
 - `GET /conversations/{id}/messages`: chronological messages (`limit`, `offset`).
+- `GET /conversations/{id}/messages/{message_id}/image`: owner-only saved image bytes.
+
+Message responses include `request_id`, durable `sources` (including excerpts),
+saved quiz cards, image grounding, and an authenticated image URL. No answer keys
+are returned in saved quiz cards. Source snapshots live in application tables,
+so new messages do not depend on retaining workflow checkpoints to reopen evidence.
+Older quiz cards can be resolved from their deterministic request-derived ID;
+older source links use the retained checkpoint when no snapshot exists.
 
 Answers have no inline source markers or source dumps. Evidence stays separate.
 Checkpoint threads are scoped to user and request. Reuse a request UUID only for
@@ -150,7 +164,9 @@ change the local embedding model or reindex notes.
 - `POST /media/image-query`: multipart `file` (PNG/JPEG/WebP, <=5 MiB,
   <=4096 pixels per side) and optional `query`. Currently requires Claude.
   The response labels `grounding: uploaded_image`; it does not claim PDF citations.
-  Images are validated in memory and not retained in the repository or database.
+  Optional `conversation_id` continues a conversation; `request_id` enables safe
+  retries of the same image and question. Validated originals, questions, and
+  image-grounded answers are persisted in PostgreSQL, never in the repository.
 - `POST /media/transcribe`: multipart audio `file` (WAV/MP3/M4A/WebM/OGG/FLAC,
   <=10 MiB), returning text.
 - `POST /media/voice-query`: audio and optional `conversation_id`; transcription

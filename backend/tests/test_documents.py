@@ -42,6 +42,8 @@ def make_pdf(*, text=True, encrypted=False):
 
 @pytest.fixture
 def client(monkeypatch):
+    # Preserve synchronous unit coverage; queued API/worker coverage is tested separately below.
+    monkeypatch.setattr(get_settings(), 'background_ingestion', False)
     schema = "test_documents_" + uuid4().hex
     engine = create_engine(get_settings().database_url)
     with engine.begin() as connection:
@@ -195,3 +197,75 @@ def test_failed_upload_can_retry_without_duplicate_record(client,monkeypatch):
     assert retried.status_code == 200 and retried.json()['document_id'] == record['id']
     assert len(http.get('/documents').json()) == 1
     assert http.get('/documents').json()[0]['status'] == 'ready'
+
+
+def test_queue_accepts_once_then_worker_indexes_stable_document(client, monkeypatch):
+    from app.workers import document_worker
+    from sqlalchemy.orm import sessionmaker
+    monkeypatch.setattr(get_settings(), 'background_ingestion', True)
+    jobs, calls = {}, []
+    class Queue:
+        def fetch_job(self, job_id):
+            return jobs.get(job_id)
+        def enqueue_call(self, function, **kwargs):
+            jobs[kwargs['job_id']] = SimpleNamespace(get_status=lambda **kw: 'queued')
+            calls.append((function, kwargs))
+    monkeypatch.setattr(document_worker, 'ingestion_queue', Queue)
+    indexed = []
+    monkeypatch.setattr(document_service, 'create_document_embeddings', lambda docs, **kwargs: indexed.append(docs) or ['chunk-1'])
+    http, owner = client
+    first = http.post('/documents/upload', files={'file': ('notes.pdf', make_pdf(), 'application/pdf')})
+    assert first.status_code == 202 and first.json()['status'] == 'queued'
+    assert indexed == []
+    duplicate = http.post('/documents/upload', files={'file': ('again.pdf', make_pdf(), 'application/pdf')})
+    assert duplicate.status_code == 202 and len(calls) == 1
+    assert duplicate.json()['document_id'] == first.json()['document_id']
+    generator = app.dependency_overrides[get_db]()
+    db = next(generator)
+    try:
+        monkeypatch.setattr(document_worker, 'SessionLocal', sessionmaker(db.get_bind(), expire_on_commit=False))
+        old_args = calls[0][1]['args']
+        abandoned = db.get(DocumentRecord, UUID(first.json()['document_id']))
+        abandoned.status = 'processing'
+        db.commit()
+        # A processing row whose advisory lock is free is an abandoned execution.
+        assert http.post('/documents/' + str(abandoned.id) + '/retry').status_code == 202
+        args = calls[-1][1]['args']
+        assert args != old_args
+        assert document_worker.ingest_document(*old_args)['status'] == 'superseded'
+        assert args[0] == first.json()['document_id'] and args[1] == str(owner)
+        assert calls[0][1]['retry'].max == 2
+        assert document_worker.ingest_document(*args)['status'] == 'success'
+        assert http.get('/documents').json()[0]['status'] == 'ready'
+        assert len(indexed) == 1
+        assert document_worker.ingest_document(*args)['status'] == 'success'
+        assert len(indexed) == 1
+        assert document_worker.ingest_document(args[0], str(uuid4()), args[2])['status'] == 'superseded'
+        # Failure callbacks from an older execution must not downgrade a completed result.
+        document_worker.ingestion_failed(SimpleNamespace(args=args,retries_left=0),None,None,None,None)
+        assert http.get('/documents').json()[0]['status'] == 'ready'
+    finally:
+        generator.close()
+
+
+def test_enqueue_failure_preserves_pdf_and_can_retry(client, monkeypatch):
+    from app.workers import document_worker
+    monkeypatch.setattr(get_settings(), 'background_ingestion', True)
+    calls = []
+    class Queue:
+        def fetch_job(self, job_id): return None
+        def enqueue_call(self, *args, **kwargs):
+            calls.append(kwargs)
+            raise RuntimeError('private queue credentials')
+    monkeypatch.setattr(document_worker, 'ingestion_queue', Queue)
+    http = client[0]
+    failed = http.post('/documents/upload', files={'file': ('notes.pdf', make_pdf(), 'application/pdf')})
+    assert failed.status_code == 503 and 'private queue credentials' not in failed.text
+    record = http.get('/documents').json()[0]
+    assert record['status'] == 'failed'
+    class Recovered(Queue):
+        def enqueue_call(self, *args, **kwargs): calls.append(kwargs)
+    monkeypatch.setattr(document_worker, 'ingestion_queue', Recovered)
+    assert http.post('/documents/' + record['id'] + '/retry').status_code == 202
+    assert len(http.get('/documents').json()) == 1
+    assert calls[0]['job_id'] != calls[1]['job_id']

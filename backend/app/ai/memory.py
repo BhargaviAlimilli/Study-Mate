@@ -43,7 +43,7 @@ def load_context(db: Session, user_id: UUID, conversation_id: UUID | None) -> Co
     return context
 
 
-def save_turn(db: Session, user_id: UUID, context: ConversationContext, query: str, response: ChatResponse, request_id: UUID | None = None) -> None:
+def save_turn(db: Session, user_id: UUID, context: ConversationContext, query: str, response: ChatResponse, request_id: UUID | None = None, *, sources: list | None = None, image: tuple[str, str, bytes] | None = None) -> None:
     try:
         if request_id is not None:
             saved = db.scalar(select(Message).join(Conversation).where(
@@ -67,8 +67,10 @@ def save_turn(db: Session, user_id: UUID, context: ConversationContext, query: s
             if changed.rowcount != 1:
                 raise HTTPException(status_code=409, detail="Conversation changed during this request. Retry with the latest history.")
         db.add_all([
-            Message(conversation_id=context.id, request_id=request_id, sequence=version * 2 - 1, role="user", content=query),
-            Message(conversation_id=context.id, request_id=request_id, sequence=version * 2, role="assistant", content=response.answer, response_status=response.status),
+            Message(conversation_id=context.id, request_id=request_id, sequence=version * 2 - 1, role="user", content=query,
+                image_name=image[0] if image else None, image_mime=image[1] if image else None, image_content=image[2] if image else None),
+            Message(conversation_id=context.id, request_id=request_id, sequence=version * 2, role="assistant", content=response.answer, response_status=response.status,
+                sources=sources or [], quiz_id=response.quiz.id if response.quiz else None, grounding=response.grounding),
         ])
         db.commit()
     except Exception:

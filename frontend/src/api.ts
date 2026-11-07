@@ -45,7 +45,7 @@ export async function request<T>(
     throw new ApiError(response.status, detailMessage(data.detail), data.detail?.request_id)
   }
   const type = response.headers.get('content-type') || ''
-  if (type.includes('application/pdf') || type.includes('audio/'))
+  if (type.includes('application/pdf') || type.includes('audio/') || type.includes('image/'))
     return (await response.blob()) as T
   if (response.status === 204) return undefined as T
   return response.json()

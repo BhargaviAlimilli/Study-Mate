@@ -18,6 +18,81 @@ function mount(node: ReactNode) {
   return render(<QueryClientProvider client={client}>{node}</QueryClientProvider>)
 }
 describe('connected learning flows', () => {
+  it('restores durable source excerpts and quiz cards when a saved conversation is opened', async () => {
+    const source = {
+      document_id: 'doc-1',
+      filename: 'Notes.pdf',
+      page: 7,
+      file_url: '/documents/doc-1/file',
+      page_url: '/documents/doc-1/file?page=7',
+      excerpt: 'Promise callbacks run after synchronous code.',
+    }
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path.includes('/messages?'))
+        return response([
+          {
+            id: 'saved-answer',
+            sequence: 2,
+            role: 'assistant',
+            content: 'Your saved explanation.',
+            response_status: 'answered',
+            sources: [source],
+            quiz,
+            request_id: 'old-run',
+          },
+        ])
+      if (path.endsWith('/models')) return response({ providers: [], voice_configured: false })
+      return response([])
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const evidence = vi.fn(),
+      openQuiz = vi.fn(),
+      action = userEvent.setup()
+    mount(
+      <Chat
+        token="token"
+        user={user}
+        conversationId="saved-conversation"
+        newSession={0}
+        onConversation={vi.fn()}
+        onUpload={vi.fn()}
+        onEvidence={evidence}
+        onQuiz={openQuiz}
+      />,
+    )
+    expect(await screen.findByText('Your saved explanation.')).toBeInTheDocument()
+    await action.click(screen.getByRole('button', { name: 'View supporting pages' }))
+    expect(evidence).toHaveBeenCalledWith([source])
+    await action.click(screen.getByRole('button', { name: /Promises.*Ready when you are/ }))
+    expect(openQuiz).toHaveBeenCalledWith(quiz)
+    expect(fetchMock.mock.calls.every(([path]) => !path.includes('/chat-runs/'))).toBe(true)
+  })
+  it('shows a saved source excerpt without retrieving workflow state', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const excerpt = 'Only the relevant uploaded passage appears here.'
+    mount(
+      <Evidence
+        token="token"
+        userId="user-1"
+        selection={{
+          sources: [
+            {
+              document_id: 'doc-1',
+              filename: 'Notes.pdf',
+              page: 7,
+              file_url: '/documents/doc-1/file',
+              page_url: '/documents/doc-1/file?page=7',
+              excerpt,
+            },
+          ],
+        }}
+        onClose={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(excerpt)).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
   it('registers the requested fields and returns to sign in', async () => {
     const fetchMock = vi.fn().mockResolvedValue(response(user, 201))
     vi.stubGlobal('fetch', fetchMock)

@@ -15,8 +15,18 @@ The API profile uses PostgreSQL and Qdrant service names inside Docker. It runs
 Alembic migrations and PostgresSaver setup before starting Uvicorn. PDFs, messages,
 quizzes, revisions, and checkpoints persist in PostgreSQL's named volume;
 embeddings persist in Qdrant's volume. No user file directory is mounted.
-The worker command in Compose overrides the image's API default; ingestion work
-is still deferred. Image builds use CPU Torch to avoid unnecessary CUDA packages.
+The worker launcher uses the same container database address as the API and runs
+RQ with its scheduler for bounded delayed ingestion retries. Apply migrations
+before starting a worker against an existing database. Image builds use CPU Torch
+to avoid unnecessary CUDA packages. Start the worker with
+`docker compose up -d --build rq-worker`.
+
+To serve the whole application, stop the local API on port 8000 and run
+`docker compose --profile web up -d --build`. Open http://127.0.0.1:8080.
+The frontend is built with Node 24 and served by Nginx. Nginx proxies `/api/` to
+FastAPI on the internal Compose network, preserving same-origin browser requests.
+Port 8080 is bound to loopback. Public hosting still needs a deliberate domain,
+HTTPS, backups, and an operations configuration; this does not publish the app.
 
 For multiple API replicas, run database setup once as a deployment/init task
 before starting replicas; do not race migrations in several startup containers.
@@ -65,5 +75,6 @@ production operations policy. Do not log private notes to troubleshoot failures.
 10. Test screenshot grounding; enable speech providers separately to test voice.
 11. Verify the MCP tools with a valid token, then log out and confirm rejection.
 
-Frontend and background ingestion remain deferred. No cloud service was deployed
-and no demo video was recorded in this backend implementation.
+Frontend and background ingestion are implemented. See the root release checklist
+for the UI demonstration and real-PDF review procedure. Cloud deployment and demo
+recording are release activities; neither is established merely by passing tests.

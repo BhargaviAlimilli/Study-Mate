@@ -5,7 +5,7 @@ import { isAbort, request } from '../api'
 import type { PdfSelection, Source } from '../types'
 import { EmptyState, ErrorNotice, Spinner } from './ui'
 
-export type EvidenceSelection = { requestId: string } | PdfSelection
+export type EvidenceSelection = { requestId: string } | { sources: Source[] } | PdfSelection
 export function SourceLinks({
   sources,
   onOpen,
@@ -55,6 +55,7 @@ export default function Evidence({
         token,
       ),
   })
+  const supporting = 'sources' in selection ? selection.sources : sources.data
   return (
     <aside className="evidence-panel" aria-label="Document viewer">
       <div className="evidence-heading">
@@ -68,7 +69,7 @@ export default function Evidence({
       </div>
       {page ? (
         <>
-          {'requestId' in selection && (
+          {!('document_id' in selection) && (
             <button className="back-link" onClick={() => setPage(null)}>
               <ChevronLeft size={14.7} />
               All supporting pages
@@ -79,12 +80,12 @@ export default function Evidence({
       ) : (
         <div className="evidence-body">
           <p className="muted">Explore the pages behind this explanation.</p>
-          {sources.isPending ? (
+          {'requestId' in selection && sources.isPending ? (
             <Spinner label="Finding supporting pages…" />
-          ) : sources.error ? (
+          ) : 'requestId' in selection && sources.error ? (
             <ErrorNotice error={sources.error} retry={() => void sources.refetch()} />
-          ) : sources.data?.length ? (
-            sources.data.map((source, index) => (
+          ) : supporting?.length ? (
+            supporting.map((source, index) => (
               <button
                 className="source-card"
                 key={`${source.document_id}-${source.page}-${index}`}
@@ -93,9 +94,10 @@ export default function Evidence({
                 <span className="pdf-icon">
                   <FileText size={22.05} />
                 </span>
-                <span>
+                <span className="source-info">
                   <strong>{source.filename}</strong>
                   <small>Page {source.page}</small>
+                  {source.excerpt && <span className="source-excerpt">{source.excerpt}</span>}
                 </span>
                 <ArrowUpRight size={17.85} />
               </button>
@@ -143,6 +145,12 @@ function PdfViewer({ selection, token }: { selection: PdfSelection; token: strin
   }, [selection.document_id, selection.page, token, retry])
   return (
     <div className="pdf-viewer">
+      {selection.excerpt && (
+        <details className="excerpt-panel" open>
+          <summary>Supporting excerpt</summary>
+          <p>{selection.excerpt}</p>
+        </details>
+      )}
       <div className="pdf-title">
         <FileText size={16.8} />
         <span title={selection.filename}>{selection.filename}</span>

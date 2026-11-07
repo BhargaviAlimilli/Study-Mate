@@ -11,7 +11,7 @@ class DocumentRecord(Base):
     __tablename__ = "documents"
     __table_args__ = (
         UniqueConstraint("user_id", "content_hash", name="uq_document_user_hash"),
-        CheckConstraint("status IN ('processing', 'ready', 'failed')", name="ck_documents_status"),
+        CheckConstraint("status IN ('queued', 'processing', 'ready', 'failed')", name="ck_documents_status"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -24,4 +24,5 @@ class DocumentRecord(Base):
     page_count: Mapped[int]
     chunks_stored: Mapped[int] = mapped_column(default=0)
     status: Mapped[str] = mapped_column(String(16), default="processing")
+    ingestion_job_id: Mapped[str | None] = mapped_column(String(64))
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

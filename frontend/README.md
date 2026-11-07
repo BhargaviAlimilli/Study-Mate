@@ -1,6 +1,6 @@
 # Study Mate frontend
 
-React + TypeScript, Vite, TanStack Query, React Markdown, and Lucide icons. This folder contains the interface and its integration tests. No backend files are changed by this setup.
+React + TypeScript, Vite, TanStack Query, React Markdown, and Lucide icons. This folder contains the interface and its integration tests. It integrates with the backend contracts documented in `backend/BACKEND_API.md`.
 
 ## Run locally
 
@@ -26,11 +26,16 @@ Vite proxies `/api/*` to FastAPI and removes the `/api` prefix. No `.env` file i
 - Five-question quizzes, session drafts, idempotent submission retries, saved attempts, explanations, strengths, weaknesses, and PDF links.
 - Revision recommendations, reviewed/pending status, targeted practice, historical attempt sync, and recorded progress.
 - Browser microphone dictation and synthetic read-aloud without an OpenAI key. Dictation fills the composer for review; sending uses the same grounded chat, provider, and saved conversation flow as a typed question. Browser support varies; microphone permission is required, and the browser provider may process speech on its servers. This is not an offline or continuous real-time audio agent. Unsupported browsers keep text chat available.
-- Study image questions and optional audio-file uploads when their server providers are available. Audio-file uploads still require the server's OpenAI transcription configuration; browser dictation does not. Read-aloud prefers browser speech synthesis, with the existing server speech endpoint as a fallback when configured. Image answers are explicitly marked as image-grounded and are not persisted by the existing image endpoint.
+- Study image questions and optional audio-file uploads when their server providers are available. Audio-file uploads still require the server's OpenAI transcription configuration; browser dictation does not. Read-aloud prefers browser speech synthesis, with the existing server speech endpoint as a fallback when configured. Image questions, validated originals, and image-grounded answers are saved in PostgreSQL and can be reopened privately.
 
 The bearer token and unfinished quiz drafts are held in tab-scoped `sessionStorage`. Authentication responses are never logged. API calls use the configured API base only; source URLs from responses are not used as token destinations. PDFs are fetched with authentication and displayed using temporary blob URLs, which are revoked when closed. PDF originals continue to live in the backend database.
 
-The current backend history endpoint does not expose request IDs or quiz attachments on saved messages. Live responses offer supporting pages and quiz cards; saved quizzes and their results remain available in Practice. Historical supporting-page links require an extension to the backend message contract. The interface does not invent those IDs.
+Saved message responses include evidence snapshots with source excerpts, request IDs,
+quiz cards, and authenticated image URLs. Reopened conversations restore these
+features. Historical messages without snapshots use their retained checkpoint;
+new evidence snapshots remain available independently of checkpoint retention.
+Queued/processing uploads are polled until ready or failed, and failed uploads
+offer a retry action. The worker must be running for queued documents to advance.
 
 ## Files
 

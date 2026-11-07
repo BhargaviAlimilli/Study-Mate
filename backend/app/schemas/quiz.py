@@ -97,6 +97,7 @@ class ReviewSource(BaseModel):
     page: int
     file_url: str
     page_url: str
+    excerpt: str | None = None
 
 
 class TopicFeedback(BaseModel):

@@ -161,7 +161,8 @@ export default function Library({
   const docs = useQuery({
     queryKey: ['documents', user.id],
     queryFn: () => allPages<StudyDocument>('/documents', token),
-    refetchInterval: (q) => (q.state.data?.some((d) => d.status === 'processing') ? 5000 : false),
+    refetchInterval: (q) =>
+      q.state.data?.some((d) => ['queued', 'processing'].includes(d.status)) ? 5000 : false,
   })
   const conversations = useQuery({
     queryKey: ['conversations', user.id],
@@ -290,11 +291,16 @@ export default function Library({
                     </span>
                     {doc.status === 'ready' && <ArrowUpRight size={13.65} className="row-arrow" />}
                   </button>
-                  {doc.status === 'failed' && (
+                  {doc.status !== 'ready' && (
                     <button
                       className="icon-btn small"
                       disabled={retrying === doc.id}
                       aria-label={`Retry ${doc.filename}`}
+                      title={
+                        doc.status === 'failed'
+                          ? 'Retry ingestion'
+                          : 'Check or recover ingestion; an active job will be reused'
+                      }
                       onClick={() => void retry(doc.id)}
                     >
                       <RotateCcw size={14.7} className={retrying === doc.id ? 'spin' : ''} />

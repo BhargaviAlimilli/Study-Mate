@@ -322,6 +322,7 @@ def test_feedback_groups_strengths_review_and_pdf_pages(quiz_client):
     assert len(basics['sources']) == 1
     source = basics['sources'][0]
     assert source == {
+        'excerpt': 'Study material for five concepts.',
         'document_id': str(document_id), 'filename': 'notes.pdf', 'page': 1,
         'file_url': f'/documents/{document_id}/file',
         'page_url': f'/documents/{document_id}/file?page=1',
@@ -329,7 +330,8 @@ def test_feedback_groups_strengths_review_and_pdf_pages(quiz_client):
     assert result['answers'][1]['sources'] == basics['sources']
     assert 'not been assessed' in feedback['assessment_note']
     assert client.get(f"/quizzes/{quiz['id']}/attempts/{result['id']}").json()['feedback'] == feedback
-    assert 'Study material for five concepts' not in response.text
+    assert source['excerpt'] == 'Study material for five concepts.'
+    assert 'citation_ids' not in response.text
     assert model.call_count == 1
 
 

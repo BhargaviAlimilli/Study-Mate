@@ -28,6 +28,7 @@ class ChatResponse(BaseModel):
     conversation_id: UUID | None = None
     request_id: UUID | None = None
     quiz: QuizResponse | None = None
+    grounding: str | None = None
 
 
 class ConversationResponse(BaseModel):
@@ -46,3 +47,9 @@ class MessageResponse(BaseModel):
     content: str
     response_status: str | None
     created_at: datetime
+    request_id: UUID | None = None
+    sources: list[ReviewSource] = Field(default_factory=list)
+    quiz: QuizResponse | None = None
+    grounding: str | None = None
+    image_name: str | None = None
+    image_url: str | None = None

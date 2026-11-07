@@ -23,6 +23,7 @@ def review_sources(evidence: list[dict]) -> list[ReviewSource]:
         sources[(document_id, page)] = ReviewSource(
             document_id=document_id, filename=filename, page=page,
             file_url=url, page_url=f"{url}?page={page}",
+            excerpt=str(item.get("text") or item.get("excerpt") or "")[:2000] or None,
         )
     return list(sources.values())
 

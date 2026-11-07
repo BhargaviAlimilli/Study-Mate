@@ -9,6 +9,7 @@ from pypdf import PdfReader, PdfWriter
 from app.core.security import get_current_user
 from app.core.database import get_db
 from app.models.user import User
+from app.core.config import get_settings
 from app.schemas.document import DocumentUploadResponse, DocumentResponse
 from app.services.document_service import process_document_upload, get_owned_document, list_documents, get_document_content
 
@@ -19,9 +20,11 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 
 @router.post("/upload", response_model=DocumentUploadResponse, status_code=201)
 def upload_document(
-    file: UploadFile, user: CurrentUser, db: Database
+    file: UploadFile, user: CurrentUser, db: Database, response: Response
 ) -> DocumentUploadResponse:
-    return process_document_upload(file, user_id=str(user.id), db=db)
+    result = process_document_upload(file, user_id=str(user.id), db=db, queued=get_settings().background_ingestion)
+    if result.status == "queued": response.status_code = 202
+    return result
 
 
 @router.get("", response_model=list[DocumentResponse])
@@ -55,10 +58,12 @@ def document_file(document_id: UUID, user: CurrentUser, db: Database, page: int 
 
 
 @router.post("/{document_id}/retry", response_model=DocumentUploadResponse)
-def retry_document(document_id: UUID, user: CurrentUser, db: Database):
+def retry_document(document_id: UUID, user: CurrentUser, db: Database, response: Response):
     from starlette.datastructures import Headers
     record = get_owned_document(document_id,user.id,db)
     if record.status == 'ready':
         return DocumentUploadResponse(document_id=record.id,chunks_stored=record.chunks_stored,message='Document is already ready.')
     file = UploadFile(file=BytesIO(record.pdf_content),filename=record.filename,headers=Headers({'content-type':'application/pdf'}))
-    return process_document_upload(file,str(user.id),db)
+    result = process_document_upload(file,str(user.id),db,queued=get_settings().background_ingestion)
+    if result.status == "queued": response.status_code = 202
+    return result

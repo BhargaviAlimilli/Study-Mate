@@ -49,7 +49,7 @@ def retrieve_node(state):
     if "ready_document_ids" in state:
         docs = [doc for doc in docs if str(doc.metadata.get("document_id")) in state["ready_document_ids"]]
     return {"passages": [{"citation_id": i, "text": doc.page_content[:2000]} for i, doc in enumerate(docs, start=1)],
-            "evidence": [{"citation_id": i, **doc.metadata} for i, doc in enumerate(docs, start=1)]}
+            "evidence": [{"citation_id": i, **doc.metadata, "text": doc.page_content[:2000]} for i, doc in enumerate(docs, start=1)]}
 
 
 def generate_node(state):
@@ -127,7 +127,10 @@ def execute_run(db: Session, user_id: UUID, request_id: UUID, query: str | None,
             context = ConversationContext(UUID(data["id"]), data["version"], state["history"], data["is_new"])
             response = ChatResponse.model_validate(state["response"])
             # Request IDs make this safe if a crash occurred after committing messages.
-            save_turn(db, user_id, context, state["query"], response, request_id=request_id)
+            ids = set((state.get("model_answer") or {}).get("citation_ids", []))
+            evidence = review_sources([item for item in state.get("evidence", []) if item.get("citation_id") in ids]) if response.status == "answered" else []
+            save_turn(db, user_id, context, state["query"], response, request_id=request_id,
+                sources=[source.model_dump(mode="json") for source in evidence])
             response.conversation_id = context.id
             response.request_id = request_id
             return response
@@ -166,6 +169,11 @@ def route_node(state):
 
 
 def get_run_evidence(request_id: UUID, user_id: UUID, db: Session):
+    from app.models.conversation import Message, Conversation
+    saved = db.scalar(select(Message).join(Conversation).where(Conversation.user_id == user_id, Message.request_id == request_id, Message.role == "assistant"))
+    if saved is not None and saved.sources:
+        owned_ids = {str(value) for value in db.scalars(select(DocumentRecord.id).where(DocumentRecord.user_id == user_id, DocumentRecord.status == "ready"))}
+        return review_sources([source for source in saved.sources if str(source.get("document_id")) in owned_ids])
     config = {"configurable": {"thread_id": f"user:{user_id}:request:{request_id}"}}
     with checkpoint_session(config["configurable"]["thread_id"]) as saver:
         # Graph topology does not affect reading state.

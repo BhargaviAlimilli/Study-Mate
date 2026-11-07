@@ -22,6 +22,7 @@ import type {
   Models,
   Quiz,
   SavedMessage,
+  Source,
   StudyDocument,
   User,
 } from '../types'
@@ -46,7 +47,7 @@ export default function Chat({
   isActive?: boolean
   onConversation: (id: string) => void
   onUpload: () => void
-  onEvidence: (requestId: string) => void
+  onEvidence: (requestId: string | Source[]) => void
   onQuiz: (quiz: Quiz) => void
 }) {
   const client = useQueryClient(),
@@ -136,6 +137,7 @@ export default function Chat({
         status: reply.status,
         request_id: reply.request_id,
         quiz: reply.quiz,
+        grounding: reply.grounding,
       },
     ])
     setResumeId(null)
@@ -189,21 +191,14 @@ export default function Chat({
         const body = new FormData()
         body.append('file', file)
         body.append('query', text || 'Explain this study image.')
+        body.append('request_id', crypto.randomUUID())
+        if (conversationId) body.append('conversation_id', conversationId)
         const result = await request<ChatReply>('/media/image-query', token, {
           method: 'POST',
           body,
           signal: controller.signal,
         })
-        if (!controller.signal.aborted)
-          setMessages((current) => [
-            ...current,
-            {
-              id: crypto.randomUUID(),
-              role: 'assistant',
-              content: result.answer,
-              grounding: 'Uploaded image · not saved in conversation history',
-            },
-          ])
+        if (!controller.signal.aborted) receive(result)
       } else {
         const requestId = crypto.randomUUID()
         try {
@@ -542,7 +537,7 @@ function Message({
   voiceEnabled: boolean
   active: boolean
   user: User
-  onEvidence: (id: string) => void
+  onEvidence: (id: string | Source[]) => void
   onQuiz: (quiz: Quiz) => void
 }) {
   const [copied, setCopied] = useState(false),
@@ -560,7 +555,23 @@ function Message({
         <div className="markdown">
           <ReactMarkdown>{message.content}</ReactMarkdown>
         </div>
-        {message.grounding && <p className="field-hint">{message.grounding}</p>}
+        {message.image_url && (
+          <SavedStudyImage
+            path={message.image_url}
+            name={message.image_name || 'Study image'}
+            token={token}
+          />
+        )}
+        {message.image_name && !message.image_url && (
+          <p className="field-hint">Image: {message.image_name}</p>
+        )}
+        {message.grounding && (
+          <p className="field-hint">
+            {message.grounding === 'uploaded_image'
+              ? 'Grounded in the uploaded image'
+              : message.grounding}
+          </p>
+        )}
         {message.quiz && (
           <button className="quiz-chat-card" onClick={() => onQuiz(message.quiz!)}>
             <ListChecks size={25.2} />
@@ -573,8 +584,13 @@ function Message({
         )}
         {message.role === 'assistant' && (
           <div className="message-actions">
-            {message.request_id && (
-              <button onClick={() => onEvidence(message.request_id!)}>
+            {(message.sources?.length ||
+              (message.request_id && message.grounding !== 'uploaded_image')) && (
+              <button
+                onClick={() =>
+                  onEvidence(message.sources?.length ? message.sources : message.request_id!)
+                }
+              >
                 <FileText size={13.65} />
                 View supporting pages
               </button>
@@ -607,5 +623,41 @@ function Message({
         <ErrorNotice error={error} />
       </div>
     </article>
+  )
+}
+
+function SavedStudyImage({ path, name, token }: { path: string; name: string; token: string }) {
+  const [url, setUrl] = useState(''),
+    [error, setError] = useState<unknown>(null)
+  useEffect(() => {
+    const controller = new AbortController()
+    let objectUrl = ''
+    if (!/^\/conversations\/[a-f0-9-]+\/messages\/[a-f0-9-]+\/image$/.test(path)) {
+      setError(new Error('Invalid saved image reference.'))
+      return
+    }
+    request<Blob>(path, token, { signal: controller.signal })
+      .then((blob) => {
+        if (controller.signal.aborted) return
+        objectUrl = URL.createObjectURL(blob)
+        setUrl(objectUrl)
+      })
+      .catch((e) => {
+        if (!controller.signal.aborted) setError(e)
+      })
+    return () => {
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [path, token])
+  return (
+    <>
+      <ErrorNotice error={error} />
+      {url && (
+        <a href={url} target="_blank" rel="noreferrer">
+          <img className="study-image" src={url} alt={name} />
+        </a>
+      )}
+    </>
   )
 }

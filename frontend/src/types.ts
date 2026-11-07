@@ -15,7 +15,7 @@ export interface StudyDocument {
   size_bytes: number
   page_count: number
   chunks_stored: number
-  status: 'ready' | 'processing' | 'failed'
+  status: 'ready' | 'queued' | 'processing' | 'failed'
   uploaded_at: string
 }
 export interface Conversation {
@@ -31,6 +31,12 @@ export interface SavedMessage {
   content: string
   response_status: string | null
   created_at: string
+  request_id?: string
+  sources?: Source[]
+  quiz?: Quiz
+  grounding?: string
+  image_name?: string
+  image_url?: string
 }
 export interface ChatReply {
   status: string
@@ -38,6 +44,7 @@ export interface ChatReply {
   conversation_id?: string
   request_id?: string
   quiz?: Quiz
+  grounding?: string
 }
 export interface ChatMessage {
   id: string
@@ -49,6 +56,9 @@ export interface ChatMessage {
   quiz?: Quiz
   error?: boolean
   grounding?: string
+  sources?: Source[]
+  image_name?: string
+  image_url?: string
 }
 export interface Source {
   document_id: string
@@ -56,6 +66,7 @@ export interface Source {
   page: number
   file_url: string
   page_url: string
+  excerpt?: string | null
 }
 export interface QuizQuestion {
   id: string
@@ -146,4 +157,5 @@ export interface PdfSelection {
   document_id: string
   filename: string
   page?: number
+  excerpt?: string | null
 }

@@ -1,7 +1,7 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
-from uuid import UUID
+from fastapi import APIRouter, Depends, Query, Response, HTTPException
+from uuid import UUID, uuid5, NAMESPACE_URL
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -10,6 +10,8 @@ from app.core.database import get_db
 from app.ai.memory import owned_conversation
 from app.models.conversation import Conversation, Message
 from app.models.user import User
+from app.models.quiz import Quiz
+from app.schemas.quiz import QuizResponse
 from app.schemas.chat import ChatRequest, ChatResponse, ConversationResponse, MessageResponse
 from app.services.chat_service import continue_conversation, resume_conversation, get_run_evidence
 
@@ -43,8 +45,27 @@ def conversation(conversation_id: UUID, user: CurrentUser, db: Database):
 def messages(conversation_id: UUID, user: CurrentUser, db: Database,
              limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0)):
     owned_conversation(db, conversation_id, user.id)
-    return list(db.scalars(select(Message).where(Message.conversation_id == conversation_id)
+    records = list(db.scalars(select(Message).where(Message.conversation_id == conversation_id)
                           .order_by(Message.sequence).limit(limit).offset(offset)))
+    ids = {message.quiz_id or uuid5(NAMESPACE_URL, f"quiz:{user.id}:{message.request_id}") for message in records if message.quiz_id or (message.response_status == "quiz_ready" and message.request_id)}
+    quizzes = {quiz.id: quiz for quiz in db.scalars(select(Quiz).where(Quiz.user_id == user.id, Quiz.id.in_(ids)))} if ids else {}
+    result = []
+    for message in records:
+        value = MessageResponse.model_validate(message)
+        quiz_id = message.quiz_id or (uuid5(NAMESPACE_URL, f"quiz:{user.id}:{message.request_id}") if message.response_status == "quiz_ready" and message.request_id else None)
+        value.quiz = QuizResponse.model_validate(quizzes[quiz_id]) if quiz_id in quizzes else None
+        value.image_url = f"/conversations/{conversation_id}/messages/{message.id}/image" if message.image_name else None
+        result.append(value)
+    return result
+
+
+@router.get("/conversations/{conversation_id}/messages/{message_id}/image")
+def message_image(conversation_id: UUID, message_id: UUID, user: CurrentUser, db: Database):
+    owned_conversation(db, conversation_id, user.id)
+    record = db.scalar(select(Message).where(Message.id == message_id, Message.conversation_id == conversation_id))
+    if record is None or not record.image_content or record.image_mime not in {"image/png", "image/jpeg", "image/webp"}:
+        raise HTTPException(404, "Study image not found.")
+    return Response(record.image_content, media_type=record.image_mime, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
 
 @router.get("/chat-runs/{request_id}/evidence")

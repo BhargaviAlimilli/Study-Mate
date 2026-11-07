@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     speech_generation_model: str = "tts-1"
     frontend_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     max_upload_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
+    background_ingestion: bool = True
+    redis_url: str = "redis://127.0.0.1:6380/0"
+    ingestion_timeout_seconds: int = Field(default=900, ge=30, le=3600)
 
 
 @lru_cache
