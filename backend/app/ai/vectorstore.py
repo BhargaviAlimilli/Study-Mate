@@ -28,7 +28,8 @@ class MissingCollectionError(Exception):
 def delete_document_vectors(document_id: str, user_id: str) -> None:
     """Compensate for partially indexed uploads without touching other documents."""
     settings = get_settings()
-    with QdrantClient(url=settings.qdrant_url, timeout=15) as client:
+    client = QdrantClient(url=settings.qdrant_url, timeout=15)
+    try:
         if client.collection_exists(settings.qdrant_collection_name):
             client.delete(
                 collection_name=settings.qdrant_collection_name,
@@ -38,6 +39,8 @@ def delete_document_vectors(document_id: str, user_id: str) -> None:
                 ])),
                 wait=True,
             )
+    finally:
+        client.close()
 
 
 def get_vector_store() -> QdrantVectorStore:

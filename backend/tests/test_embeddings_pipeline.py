@@ -5,6 +5,7 @@ from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient, models
 
 from app.ai import rag
+from app.ai import vectorstore
 
 
 class FakeEmbeddings(Embeddings):
@@ -78,3 +79,30 @@ def test_fixed_evaluation_fixture_is_complete():
     pages={(item['document'],item['page']) for item in fixture['corpus']}
     assert all((case['expected_document'],case['expected_page']) in pages for case in fixture['questions'] if case['expected_document'])
     assert sum(case['expected_document'] is None for case in fixture['questions']) == 4
+
+
+def test_retry_cleanup_with_real_qdrant_client_preserves_other_documents(monkeypatch):
+    from types import SimpleNamespace
+    from uuid import uuid4
+    client = QdrantClient(':memory:')
+    client.create_collection('retry-test', vectors_config=models.VectorParams(size=3, distance=models.Distance.COSINE))
+    client.upsert('retry-test', points=[models.PointStruct(id=str(uuid4()), vector=[1., 0., .1], payload={'metadata': {'user_id': user, 'document_id': document}})
+        for user, document in [('alice','doc-1'), ('alice','doc-2'), ('bob','doc-1')]])
+    real_close = client.close
+    closed = []
+    monkeypatch.setattr(client, 'close', lambda: closed.append(True))
+    monkeypatch.setattr(vectorstore, 'QdrantClient', lambda **kwargs: client)
+    monkeypatch.setattr(vectorstore, 'get_settings', lambda: SimpleNamespace(qdrant_url='unused', qdrant_collection_name='retry-test'))
+    try:
+        vectorstore.delete_document_vectors('doc-1', 'alice')
+        points, _ = client.scroll('retry-test', limit=10)
+        remaining = {(point.payload['metadata']['user_id'], point.payload['metadata']['document_id']) for point in points}
+        assert remaining == {('alice','doc-2'), ('bob','doc-1')}
+        assert closed == [True]
+        def unavailable(*args): raise RuntimeError('Qdrant unavailable')
+        monkeypatch.setattr(client, 'collection_exists', unavailable)
+        with pytest.raises(RuntimeError, match='Qdrant unavailable'):
+            vectorstore.delete_document_vectors('doc-1', 'alice')
+        assert closed == [True, True]
+    finally:
+        real_close()
