@@ -1,9 +1,10 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Response, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.config import get_settings
 from app.core.security import get_current_session, get_current_user
 from app.models.user import AuthSession, User
 from app.schemas.auth import LoginRequest, LogoutResponse, RegisterRequest, TokenResponse, UserResponse
@@ -15,6 +16,8 @@ Database = Annotated[Session, Depends(get_db)]
 
 @router.post("/register", response_model=UserResponse, status_code=201)
 def register(data: RegisterRequest, db: Database) -> User:
+    if not get_settings().allow_registration:
+        raise HTTPException(403, "Public registration is disabled for this training demo. Use an account provided by its owner.")
     return register_user(data, db)
 
 

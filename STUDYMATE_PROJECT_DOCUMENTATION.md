@@ -753,6 +753,7 @@ Never put database credentials, JWT signing secrets, or provider API keys in fro
 | `DATABASE_URL` | Required PostgreSQL SQLAlchemy connection URL. |
 | `JWT_SECRET_KEY` | Required signing secret, at least 32 characters. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | 30; configurable between 1 and 1,440. |
+| `ALLOW_REGISTRATION` | True locally. The free shared-demo setup defaults to false; the owner creates learner accounts from the server terminal. |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Active Claude credentials/model; configured model default `claude-haiku-5-5`. |
 | `EMBEDDING_MODEL_NAME` | `sentence-transformers/all-MiniLM-L6-v2`; current local model produces 384-dimensional embeddings. |
 | `QDRANT_URL`, `QDRANT_COLLECTION_NAME` | Local URL `http://127.0.0.1:6335`; collection `study_mate`. |
@@ -921,6 +922,18 @@ docker compose --profile web up -d --build
 Open `http://127.0.0.1:8080`. Nginx serves the built React files and proxies `/api/` to the API. The Compose web profile starts the API; normal supporting services include PostgreSQL, Qdrant, Redis, and the worker. The API-only profile is also available.
 
 Named volumes retain PostgreSQL, Qdrant, and Redis data across ordinary container restarts. `docker compose down -v` deletes those volumes and is not a routine restart command. The first worker model load can download/cache public model artifacts; a recreated worker container may need them again because no persistent embedding-model cache volume is currently declared.
+
+### Free hosted training setup
+
+`deploy/free/` is a separate one-VM deployment configuration, described in its
+[setup guide](deploy/free/README.md). It targets an eligible Oracle Always Free
+VM with a free Duck DNS hostname and Caddy-managed HTTPS; it does not provision
+cloud resources or guarantee free capacity. Claude usage remains billable.
+This configuration adds a persistent model cache, resource limits, one-time
+migration ordering, private database/worker networking, canonical MCP routing,
+and invite-only learner-account creation. It does not replace the local Compose
+workflow above. A public VM, DNS records, firewall rules, and live certificate
+issuance still require the owner's hosting account and verification.
 
 ## 23. Testing, evaluation, and observability
 

@@ -4,6 +4,7 @@ from fastapi import HTTPException
 
 from agents import Agent, ModelSettings, RunConfig, Runner
 from agents.extensions.models.litellm_model import LitellmModel
+from agents.exceptions import ModelBehaviorError
 
 from app.core.config import get_settings
 from app.core.telemetry import event_logger
@@ -38,15 +39,31 @@ def create_agent(*, instructions=STUDY_TUTOR_PROMPT, output_type=TutorAnswer, ma
 async def generate_reply(question: str, passages: list[dict], history: list[dict] | None = None, preferences: dict | None = None, action: str = "answer") -> TutorAnswer:
     if not question.strip():
         raise ValueError("The question must not be empty.")
-    result = await Runner.run(
-        create_agent(provider=(preferences or {}).get("model_provider", "anthropic")),
-        json.dumps({"question": question, "passages": passages, "history": history or [], "preferences": preferences or {}, "action": action}, ensure_ascii=False),
-        # No OpenAI tracing credentials are needed for this Claude-only call.
-        run_config=RunConfig(tracing_disabled=True),
-    )
+    payload = json.dumps({"question": question, "passages": passages, "history": history or [], "preferences": preferences or {}, "action": action}, ensure_ascii=False)
+    for attempt, token_budget in enumerate((2048, 3072)):
+        instructions = STUDY_TUTOR_PROMPT
+        if attempt:
+            instructions += ("\nThe previous attempt did not satisfy the output schema. "
+                "Return one complete structured object with status, answer and citation_ids. "
+                "Keep the explanation concise (at most 350 words), with no text outside the object. "
+                "All original scope and evidence rules still apply.")
+        try:
+            result = await Runner.run(
+                create_agent(instructions=instructions, max_tokens=token_budget,
+                             provider=(preferences or {}).get("model_provider", "anthropic")),
+                payload,
+                # No OpenAI tracing credentials are needed for this Claude-only call.
+                run_config=RunConfig(tracing_disabled=True),
+            )
+            if not isinstance(result.final_output, TutorAnswer):
+                raise ModelBehaviorError("The agent returned an invalid answer format.")
+            break
+        except ModelBehaviorError:
+            if attempt:
+                raise
+            # Do not log malformed output, prompts, or user document contents.
+            event_logger('models').warning('tutor_output_retry', extra={'attempt': 1})
     usage = [(getattr(item.usage, "input_tokens", 0), getattr(item.usage, "output_tokens", 0)) for item in result.raw_responses]
     event_logger('models').info('model_usage',extra={'input_tokens':sum(x[0] for x in usage),'output_tokens':sum(x[1] for x in usage)})
-    if not isinstance(result.final_output, TutorAnswer):
-        raise ValueError("The agent returned an invalid answer format.")
     return result.final_output
 

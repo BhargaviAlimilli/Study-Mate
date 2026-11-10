@@ -1,0 +1,17 @@
+{$PUBLIC_HOST} {
+    request_body {
+        max_size 12MB
+    }
+    encode zstd gzip
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+    @mcp path /mcp /mcp/* /.well-known/*
+    handle @mcp {
+        reverse_proxy api:8000
+    }
+    handle {
+        reverse_proxy frontend:80
+    }
+}

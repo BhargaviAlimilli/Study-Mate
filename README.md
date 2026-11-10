@@ -54,6 +54,12 @@ For a full container setup, stop any existing API using port 8000, then run
 `docker compose --profile web up -d --build` and open http://127.0.0.1:8080.
 See [ARCHITECTURE.md](ARCHITECTURE.md) and [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
 
+For free training hosting with your existing Claude key, see
+[deploy/free/README.md](deploy/free/README.md). The dedicated configuration keeps
+storage/worker services private, uses a free hostname and automatic HTTPS, and
+defaults to owner-created learner accounts. Hosting eligibility/limits must be
+confirmed in your own account; Claude API usage is separate from hosting costs.
+
 ## Backend features
 
 - Register/login/logout with Argon2 hashes, JWTs, and durable token revocation.

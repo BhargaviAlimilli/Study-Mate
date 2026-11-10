@@ -1,6 +1,26 @@
 name: Application checks
 on: [push, pull_request]
 jobs:
+  deployment-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate free deployment without real credentials
+        run: |
+          python - <<'PY'
+          import importlib.util, os
+          from pathlib import Path
+          spec = importlib.util.spec_from_file_location('prepare', 'deploy/free/prepare_env.py')
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          module.write_env('ci-demo.duckdns.org', 'synthetic-ci-key', Path(os.environ['RUNNER_TEMP']) / 'study-mate.env')
+          PY
+          DEMO_ENV_FILE="$RUNNER_TEMP/study-mate.env" docker compose --env-file "$RUNNER_TEMP/study-mate.env" -f deploy/free/compose.yml config --quiet
+          bash -n deploy/free/deploy.sh
+          bash -n deploy/free/backup.sh
   frontend:
     runs-on: ubuntu-latest
     defaults:

@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     database_url: str
     jwt_secret_key: SecretStr = Field(min_length=32)
     access_token_expire_minutes: int = Field(default=30, ge=1, le=1440)
+    allow_registration: bool = True
     anthropic_api_key: SecretStr | None = None
     anthropic_model: str = "claude-haiku-5-5"
     qdrant_url: str = "http://127.0.0.1:6335"

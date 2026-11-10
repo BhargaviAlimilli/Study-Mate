@@ -1,5 +1,17 @@
 # Deployment and verification
 
+## Free training hosting
+
+For the selected Google Cloud alternative, use [the GCP trial guide](../deploy/free/GCP.md).
+It runs the full stack on Compute Engine using eligible temporary trial credits.
+
+Use [deploy/free/README.md](../deploy/free/README.md) for the isolated one-VM
+deployment: Oracle Always Free compute, a free Duck DNS hostname, Caddy HTTPS,
+and self-hosted PostgreSQL/Qdrant/Redis/RQ. It includes secret generation,
+migration ordering, owner-created accounts, backup guidance, and a public-route
+checker. Existing Claude calls remain billable. No cloud resource is created
+by adding the setup files; a free-eligible VM/account/hostname is still needed.
+
 ## Container option
 
 Keep `backend/.env` outside version control. Configure real credentials, JWT

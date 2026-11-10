@@ -7,3 +7,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 backend/storage/
+# Keep live account/host details and user-specific QA identifiers local.
+deploy/free/DEPLOYED.md
+deploy/free/LIVE_VERIFICATION.json
+deploy/free/BROWSER_QA_FOLLOWUP.json

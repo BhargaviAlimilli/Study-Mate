@@ -1,0 +1,2 @@
+# Deployment scripts must also work after a Windows checkout is copied to Linux.
+*.sh text eol=lf

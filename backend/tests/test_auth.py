@@ -51,6 +51,16 @@ def login(client):
     })
 
 
+def test_shared_demo_can_disable_public_registration(auth_client, monkeypatch):
+    client, engine = auth_client
+    monkeypatch.setattr(get_settings(), 'allow_registration', False)
+    response = register(client)
+    assert response.status_code == 403
+    assert 'Public registration is disabled' in response.json()['detail']
+    with Session(engine) as db:
+        assert db.scalar(select(User)) is None
+
+
 def test_register_and_validation(auth_client):
     client, engine = auth_client
     response = register(client)

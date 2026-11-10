@@ -1,0 +1,149 @@
+# Standalone configuration: never merge with the local-development Compose file.
+# One existing VM (Oracle Always Free or GCP trial); provisions no cloud resources.
+name: study-mate-free
+
+x-backend: &backend
+  image: study-mate-backend:free-demo
+  build:
+    context: ../../backend
+  env_file: ${DEMO_ENV_FILE:-.env}
+  environment:
+    POSTGRES_SERVICE_HOST: postgres
+    QDRANT_URL: http://qdrant:6333
+    REDIS_URL: redis://redis:6379/0
+    API_PUBLIC_URL: https://${PUBLIC_HOST:?Prepare deploy/free/.env first}
+    FRONTEND_ORIGINS: '["https://${PUBLIC_HOST}"]'
+    FORWARDED_ALLOW_IPS: ${APP_SUBNET:-172.29.0.0/24}
+    HF_HOME: /models/huggingface
+    OMP_NUM_THREADS: "1"
+    TOKENIZERS_PARALLELISM: "false"
+  volumes:
+    - model_cache:/models
+  networks: [app]
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Missing POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Missing POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?Missing POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 1g
+    restart: unless-stopped
+    networks: [app]
+
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    volumes:
+      - qdrant_data:/qdrant/storage
+    mem_limit: 2g
+    restart: unless-stopped
+    networks: [app]
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 256m
+    restart: unless-stopped
+    networks: [app]
+
+  migrate:
+    <<: *backend
+    command: ["python", "-m", "app.start", "--migrate-only"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 1g
+    restart: "no"
+
+  api:
+    <<: *backend
+    command: ["python", "-m", "app.start", "--serve-only"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 20s
+      timeout: 8s
+      start_period: 90s
+      retries: 6
+    mem_limit: 3g
+    restart: unless-stopped
+
+  rq-worker:
+    <<: *backend
+    command: ["python", "-m", "app.workers.run"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      qdrant:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    stop_grace_period: 60s
+    mem_limit: 4g
+    restart: unless-stopped
+
+  frontend:
+    image: study-mate-frontend:free-demo
+    build:
+      context: ../../frontend
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    mem_limit: 128m
+    restart: unless-stopped
+    networks: [app]
+
+  edge:
+    image: caddy:2-alpine
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?Missing PUBLIC_HOST}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      frontend:
+        condition: service_started
+    mem_limit: 128m
+    restart: unless-stopped
+    networks: [app]
+
+networks:
+  app:
+    ipam:
+      config:
+        - subnet: ${APP_SUBNET:-172.29.0.0/24}
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  redis_data:
+  model_cache:
+  caddy_data:
+  caddy_config:
